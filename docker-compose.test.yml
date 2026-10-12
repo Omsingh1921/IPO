@@ -1,0 +1,45 @@
+# ==============================================================================
+# Docker Compose: Ephemeral CI / Automated Test Environment
+# Spins up an ephemeral MySQL instance, runs the full test suite, and tears down
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  test-mysql:
+    image: mysql:8.0
+    container_name: ipo-test-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_pass
+      MYSQL_DATABASE: ipo_test_db
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_pass"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    tmpfs:
+      - /var/lib/mysql
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ipo-test-runner
+    depends_on:
+      test-mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://test_user:test_password@test-mysql:3306/ipo_test_db?charset=utf8mb4
+      RUN_MIGRATIONS: "true"
+      DB_HOST: test-mysql
+      DB_PORT: 3306
+      TZ: Asia/Kolkata
+    entrypoint: ["/app/scripts/wait-for-db.sh"]
+    command: ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"]

@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "ipo_id": "IND-MB-2026-MONEYVIEW",
+  "company_name": "Moneyview Limited",
+  "segment": "Mainboard",
+  "status": "Opening Today",
+  "issue_parameters": {
+    "issue_size_cr": 1091.68,
+    "fresh_issue_cr": 750.0,
+    "ofs_amount_cr": 341.68,
+    "price_band_low": 32.0,
+    "price_band_high": 34.0,
+    "lot_size": 441,
+    "minimum_investment": 14994.0
+  },
+  "growth_analytics": {
+    "periods_count": 2,
+    "financial_periods": [
+      {
+        "period_name": "FY2025",
+        "period_type": "FY",
+        "revenue_cr": 2378.53,
+        "revenue_growth_yoy_percent": null,
+        "ebitda_cr": 697.98,
+        "ebitda_margin_percent": 29.35,
+        "pat_cr": 240.28,
+        "pat_growth_yoy_percent": null,
+        "eps": null,
+        "debt_cr": null,
+        "roe_percent": null,
+        "roce_percent": null,
+        "debt_equity": null
+      },
+      {
+        "period_name": "FY2026",
+        "period_type": "FY",
+        "revenue_cr": 3404.27,
+        "revenue_growth_yoy_percent": 43.12,
+        "ebitda_cr": 968.92,
+        "ebitda_margin_percent": 28.46,
+        "pat_cr": 242.71,
+        "pat_growth_yoy_percent": 1.01,
+        "eps": null,
+        "debt_cr": null,
+        "roe_percent": null,
+        "roce_percent": null,
+        "debt_equity": null
+      }
+    ],
+    "revenue_cagr_percent": 43.12,
+    "pat_cagr_percent": 1.01
+  },
+  "valuation_analytics": {
+    "reference_price": 34.0,
+    "reference_eps": 0.79,
+    "reference_book_value_per_share": null,
+    "issue_pe": 43.04,
+    "issue_pb": null,
+    "peer_median_pe": null,
+    "valuation_spread_vs_peers_percent": null,
+    "industry_pe": 28.5,
+    "valuation_spread_vs_industry_percent": 51.02,
+    "valuation_method": "Trailing Diluted P/E on FY26 Earnings",
+    "valuation_source": "RHP Financial Statements"
+  },
+  "subscription_momentum": {
+    "has_subscription_data": false,
+    "categories": {},
+    "institutional_demand_ratio": null,
+    "total_subscription_multiple": null
+  },
+  "scenario_40_percent": {
+    "reference_price": 34.0,
+    "target_price_40": 47.6,
+    "required_move": 40.0,
+    "target_pe": 60.25,
+    "scenario_status": "Insufficient evidence"
+  },
+  "data_quality": {
+    "completeness_status": "Partial",
+    "source_verification_status": "Verified",
+    "last_verified": "2026-09-24 10:45:00"
+  }
+}

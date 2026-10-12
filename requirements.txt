@@ -1,0 +1,10 @@
+# Core ORM and Migration Engine
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+
+# MySQL Database Driver
+pymysql>=1.1.0
+cryptography>=42.0.0
+
+# Distributed Cache / Lock Engine
+redis>=5.0.1
