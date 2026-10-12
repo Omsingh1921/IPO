@@ -187,6 +187,16 @@ class JSONIngestor:
                     PAT=cls._parse_provenance(fin["PAT"]) if "PAT" in fin else None,
                     PAT_growth=cls._parse_provenance(fin["PAT_growth"]) if "PAT_growth" in fin else None,
                     EPS=cls._parse_provenance(fin["EPS"]) if "EPS" in fin else None,
+                    book_value_per_share=cls._parse_provenance(fin["book_value_per_share"]) if "book_value_per_share" in fin else None,
+                    ROE=cls._parse_provenance(fin["ROE"]) if "ROE" in fin else None,
+                    ROCE=cls._parse_provenance(fin["ROCE"]) if "ROCE" in fin else None,
+                    total_debt=cls._parse_provenance(fin["total_debt"]) if "total_debt" in fin else None,
+                    net_debt=cls._parse_provenance(fin["net_debt"]) if "net_debt" in fin else None,
+                    debt_equity=cls._parse_provenance(fin["debt_equity"]) if "debt_equity" in fin else None,
+                    operating_cash_flow=cls._parse_provenance(fin["operating_cash_flow"]) if "operating_cash_flow" in fin else None,
+                    investing_cash_flow=cls._parse_provenance(fin["investing_cash_flow"]) if "investing_cash_flow" in fin else None,
+                    financing_cash_flow=cls._parse_provenance(fin["financing_cash_flow"]) if "financing_cash_flow" in fin else None,
+                    free_cash_flow=cls._parse_provenance(fin["free_cash_flow"]) if "free_cash_flow" in fin else None,
                 )
             )
 
