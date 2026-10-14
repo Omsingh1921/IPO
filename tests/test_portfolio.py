@@ -10,7 +10,11 @@ Validates:
 """
 
 import json
+import os
+import sys
 import unittest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from ipo_platform.portfolio.allocation_models import (
     AllocationStrategy,
@@ -261,6 +265,84 @@ class TestPortfolioAllocationEngine(unittest.TestCase):
         self.assertEqual(res.unallocated_cash, 500000.0)
         for a in res.allocations:
             self.assertEqual(a.allocated_amount, 0.0)
+
+    # 8. Stage 3 Audit Regression Tests
+    def test_duplicate_ipo_cannot_bypass_cap(self):
+        """Duplicate IPO recommendations must not bypass single IPO limit (<= 35%)."""
+        rec_a1 = self._create_rec("IPO-DUP", "Alpha Corp", RecommendationCategory.STRONG_SUBSCRIBE, 95.0)
+        rec_a2 = self._create_rec("IPO-DUP", "Alpha Corp", RecommendationCategory.SUBSCRIBE, 75.0)
+
+        # Pass duplicate entries for the same IPO
+        res = self.engine.allocate_portfolio(
+            recommendations=[rec_a1, rec_a2],
+            available_capital=1000000.0,
+            risk_profile=RiskProfile.AGGRESSIVE,
+        )
+
+        dup_allocations = [a for a in res.allocations if a.ipo_id == "IPO-DUP"]
+        # Must be consolidated into 1 position
+        self.assertEqual(len(dup_allocations), 1)
+        total_dup_pct = sum(a.allocation_percentage for a in dup_allocations)
+        total_dup_amt = sum(a.allocated_amount for a in dup_allocations)
+
+        self.assertLessEqual(total_dup_pct, 35.0)
+        self.assertLessEqual(total_dup_amt, 350000.0)
+        self.assertTrue(any("Duplicate recommendation" in note for note in res.diversification_notes))
+
+    def test_rounding_cannot_exceed_100_percent_or_available_capital(self):
+        """Mathematically valid allocation must never exceed 100% or available capital due to rounding."""
+        # 3 positions under Moderate profile with 25% + 15% + 15% or pro-rata downscaled
+        # Generate 7 positions to force fine fractions and fractional rounding
+        recs = [
+            (self._create_rec(f"IPO-R{i}", f"Company R{i}", RecommendationCategory.STRONG_SUBSCRIBE, 80.0 + i), f"Sector-{i}")
+            for i in range(7)
+        ]
+
+        res = self.engine.allocate_portfolio(
+            recommendations=recs,
+            available_capital=333333.33,  # Fractional available capital
+            risk_profile=RiskProfile.AGGRESSIVE,
+        )
+
+        self.assertLessEqual(res.total_allocation_percentage, 100.0)
+        self.assertLessEqual(res.total_allocated_capital, 333333.33)
+        self.assertGreaterEqual(res.unallocated_cash, 0.0)
+        # Verify exact invariant: total_allocated + unallocated == available
+        self.assertAlmostEqual(
+            res.total_allocated_capital + res.unallocated_cash,
+            333333.33,
+            places=2,
+        )
+
+    def test_missing_and_none_sector_normalization(self):
+        """None or empty sector must normalize safely to General and respect sector limits."""
+        rec1 = self._create_rec("IPO-S1", "No Sector 1", RecommendationCategory.STRONG_SUBSCRIBE, 90.0)
+        rec2 = self._create_rec("IPO-S2", "No Sector 2", RecommendationCategory.STRONG_SUBSCRIBE, 85.0)
+
+        res = self.engine.allocate_portfolio(
+            recommendations=[(rec1, None), (rec2, "   ")],
+            available_capital=1000000.0,
+            risk_profile=RiskProfile.AGGRESSIVE,
+        )
+
+        for a in res.allocations:
+            self.assertEqual(a.sector, "General")
+
+        self.assertIn("General", res.sector_allocations)
+        self.assertLessEqual(res.sector_allocations["General"], 40.0)
+
+    def test_capital_preservation_invariant(self):
+        """Capital deployed plus cash must strictly equal available capital across all profiles."""
+        for prof in [RiskProfile.CONSERVATIVE, RiskProfile.MODERATE, RiskProfile.AGGRESSIVE]:
+            recs = [
+                self._create_rec(f"IPO-P{i}", f"Co P{i}", RecommendationCategory.STRONG_SUBSCRIBE if i % 2 == 0 else RecommendationCategory.SUBSCRIBE, 75.0 + i)
+                for i in range(4)
+            ]
+            cap = 777777.77
+            res = self.engine.allocate_portfolio(recommendations=recs, available_capital=cap, risk_profile=prof)
+            self.assertLessEqual(res.total_allocated_capital, cap)
+            self.assertLessEqual(res.total_allocation_percentage, 100.0)
+            self.assertAlmostEqual(res.total_allocated_capital + res.unallocated_cash, cap, places=2)
 
 
 if __name__ == "__main__":

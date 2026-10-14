@@ -64,6 +64,12 @@ services:
       REPORTS_DIR: /app/reports/daily
       TZ: Asia/Kolkata
       RUN_MIGRATIONS: "true"
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-in-production-only-32bytes!}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      DOCS_ENABLED: ${DOCS_ENABLED:-false}
+    ports:
+      - "8000:8000"
     volumes:
       - ./reports/daily:/app/reports/daily
     networks:

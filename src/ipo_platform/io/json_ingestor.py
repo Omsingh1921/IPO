@@ -213,6 +213,56 @@ class JSONIngestor:
             financial_data=fin_list,
         )
 
+        # Optional GMP Data
+        if "gmp_data" in data and data["gmp_data"]:
+            g = data["gmp_data"]
+            record.gmp_data = GMPData(
+                gmp_value=float(g.get("gmp_value", 0.0)),
+                gmp_percentage=float(g.get("gmp_percentage", 0.0)),
+                gmp_date=g.get("gmp_date", ""),
+                gmp_time=g.get("gmp_time", ""),
+                reference_price=float(g.get("reference_price", 0.0)),
+                implied_price=float(g.get("implied_price", 0.0)),
+                source=g.get("source", "Market"),
+            )
+
+        # Optional Subscription Data
+        if "subscription_data" in data and isinstance(data["subscription_data"], dict):
+            sub_dict = {}
+            for cat_name, cat_val in data["subscription_data"].items():
+                if isinstance(cat_val, dict):
+                    sub_dict[cat_name] = SubscriptionCategory(
+                        shares_offered=int(cat_val.get("shares_offered", 0)),
+                        shares_bid=int(cat_val.get("shares_bid", cat_val.get("shares_applied", 0))),
+                        subscription_multiple=float(cat_val.get("subscription_multiple", 0.0)),
+                        source=cat_val.get("source", ""),
+                        source_date=cat_val.get("source_date", ""),
+                        retrieval_timestamp=cat_val.get("retrieval_timestamp", ""),
+                    )
+                elif isinstance(cat_val, SubscriptionCategory):
+                    sub_dict[cat_name] = cat_val
+            record.subscription_data = sub_dict
+
+        # Optional Historical IPO Data
+        if "historical_ipo" in data and data["historical_ipo"]:
+            h = data["historical_ipo"]
+            record.historical_ipo = HistoricalIPO(
+                historical_ipo=bool(h.get("historical_ipo", True)),
+                ipo_year=h.get("ipo_year"),
+                listing_price=h.get("listing_price", "Not available"),
+                listing_day_close=h.get("listing_day_close", "Not available"),
+                listing_day_high=h.get("listing_day_high", "Not available"),
+                listing_day_low=h.get("listing_day_low", "Not available"),
+                listing_day_return=h.get("listing_day_return", "Not available"),
+                post_listing_7d_return=h.get("post_listing_7d_return", "Not available"),
+                post_listing_30d_return=h.get("post_listing_30d_return", "Not available"),
+                post_listing_90d_return=h.get("post_listing_90d_return", "Not available"),
+                post_listing_180d_return=h.get("post_listing_180d_return", "Not available"),
+                post_listing_1y_return=h.get("post_listing_1y_return", "Not available"),
+                max_upside_from_issue_price=h.get("max_upside_from_issue_price", "Not available"),
+                max_drawdown_from_issue_price=h.get("max_drawdown_from_issue_price", "Not available"),
+            )
+
         # Validate complete record
         valid, errors = IPOValidator.validate_record(record)
         if not valid:
