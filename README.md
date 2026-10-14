@@ -20,69 +20,104 @@ Key focus areas include:
 
 ---
 
-## 2. Current Phase: Phase 1 (Foundation & Research Prompt Engineering)
+## 2. Platform Architecture & Capabilities (Phase 10)
 
-We are currently in **Phase 1** of the platform buildout.
+The platform is implemented as a modular Python package with a production-grade FastAPI REST API and native interactive Web Dashboard:
 
-### Phase 1 Deliverables:
-- Repository architecture and baseline directory structure.
-- Comprehensive technical documentation ([architecture.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/docs/architecture.md), [roadmap.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/docs/roadmap.md), and [data-sources.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/docs/data-sources.md)).
-- Standardized Gemini Master Prompt schema for structured IPO research reports ([prompts/phase1_ipo_research_prompt.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/prompts/phase1_ipo_research_prompt.md)).
-- Governance and compliance guardrails mandating verified source attribution and strict disclaimer enforcement.
-
-*Note: In Phase 1, no databases, streaming pipelines, or complex application code are deployed.*
-
----
-
-## 3. Overall Multi-Phase Roadmap
-
-The platform is designed to scale progressively from structured AI-augmented research to an enterprise data streaming and analytics platform:
-
-| Phase | Milestone | Core Technology / Objective |
-| :--- | :--- | :--- |
-| **Phase 1** | **Foundation & Research Schema** *(Current)* | Standardized directory structure, prompt engineering, source verification standards. |
-| **Phase 2** | **Google Sheets IPO Database** | Centralized structured storage for quantitative metrics and IPO tracking. |
-| **Phase 3** | **Python Data Analysis** | Python ETL and automated computation of financial ratios, valuation spreads, and subscription metrics. |
-| **Phase 4** | **Historical Backtesting Engine** | Systematic backtesting framework to measure recommendation efficacy against actual listing day outcomes. |
-| **Phase 5** | **40% Target Performance Measurement** | Precision evaluation of high-upside (40%+) scenario flags versus actual outcomes. |
-| **Phase 6** | **Automated 9:00 AM Daily Dispatch** | Scheduled morning executive digest aggregating open IPOs, bid status, and updated GMP. |
-| **Phase 7** | **Relational Storage (MySQL)** | Transition from spreadsheet storage to a relational schema for high data integrity and complex querying. |
-| **Phase 8** | **Streaming & Search (Kafka + Elasticsearch + Kibana)** | Distributed streaming ingestion, full-text prospectus search, and visual analytics dashboards. |
-
-For exhaustive milestone details and completion criteria, consult [docs/roadmap.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/docs/roadmap.md).
+- **Core Analytics & Recommendation Engine (`src/ipo_platform/recommendation`):** Multi-factor scoring model (0-100 score) evaluating financials, valuation (P/E relative to peers), subscription multiples (QIB, NII, Retail), and GMP sentiment with deterministic veto rules.
+- **Backtest Validation Engine (`src/ipo_platform/backtest`):** Historical validation verifying recommendation efficacy against real listing day returns.
+- **Portfolio Strategy Engine (`src/ipo_platform/portfolio`):** Institutional capital allocation with strict risk constraints (max 35% single-IPO cap, max 40% sector cap, total capital conservation, cash remainder).
+- **FastAPI REST API Platform (`src/ipo_platform/api`):** Enterprise REST layer with dependency injection, DTO validation, and observability.
+- **Native Single-Page Web Dashboard (`src/ipo_platform/api/routes/dashboard.py`):** Interactive zero-dependency HTML5/CSS/JavaScript interface delivered directly at `GET /` and `GET /dashboard`.
+- **Security & Authorization (`src/ipo_platform/security`):** JWT authentication, API-key management, hierarchical RBAC (`READ_ONLY`, `OPERATOR`, `ADMIN`), rate limiting with Redis fail-safe support, and HTTP security headers.
+- **Storage & Relational Ingestion (`src/ipo_platform/db`, `src/ipo_platform/io`):** SQLAlchemy ORM models, Alembic migrations, and JSON ingestors.
 
 ---
 
-## 4. Directory Layout
+## 3. REST API Contract & Endpoints
 
-```
-IPO-Recomendation-platform/
-│
-├── README.md                                # Platform overview, principles, and roadmap
-│
-├── docs/
-│   ├── architecture.md                      # Multi-phase system architecture and evolution
-│   ├── roadmap.md                           # Phase-by-phase objectives and completion criteria
-│   └── data-sources.md                      # Catalog of primary and secondary data sources
-│
-├── prompts/
-│   └── phase1_ipo_research_prompt.md        # Master Gemini research prompt template
-│
-├── data/
-│   ├── raw/                                 # Raw prospectuses, RHP excerpts, and exchange feeds
-│   └── processed/                           # Normalized metrics, structured JSONs, and CSVs
-│
-├── reports/                                 # Generated Markdown and PDF research reports
-│
-└── config/
-    └── .gitkeep                             # Configuration files and environment settings
+| Method | Endpoint | Minimum Role | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/` | Public | Interactive Web Dashboard Single-Page Application |
+| `GET` | `/dashboard` | Public | Web Dashboard alias |
+| `GET` | `/health` | Public | Subsystem diagnostic health probe (Database, Redis, Notifications) |
+| `GET` | `/ipos` | `READ_ONLY` | Paginated listing of active/closed IPO offerings |
+| `GET` | `/ipos/{ipo_id}` | `READ_ONLY` | Comprehensive master record for a specific IPO |
+| `POST` | `/recommendation/evaluate` | `OPERATOR` | Evaluate multi-factor recommendation from IPO record or ID |
+| `POST` | `/recommendation/validate` | `OPERATOR` | Historical cohort backtest validation against listing day outcomes |
+| `POST` | `/portfolio/allocate` | `OPERATOR` | Institutional portfolio capital allocation with diversification caps |
+| `GET` | `/metrics` | `ADMIN` | Prometheus-style telemetry counters, gauges, and request latency timers |
+
+---
+
+## 4. Authentication & RBAC
+
+The API supports dual enterprise authentication methods:
+1. **Bearer JWT Tokens:** Passed via `Authorization: Bearer <jwt_token>` header. Supports cryptographic signature verification, expiration enforcement, and revocation store checks.
+2. **API Keys:** Passed via `X-API-Key: <api_key>` header.
+
+### Role Hierarchy
+- **`READ_ONLY`:** Permitted access to IPO listings, details, and health probes. Mutations and heavy evaluations are denied (HTTP 403).
+- **`OPERATOR`:** All `READ_ONLY` permissions + recommendation evaluations, backtest validations, and portfolio allocations.
+- **`ADMIN`:** All `OPERATOR` permissions + telemetry `/metrics` and administrative operations.
+
+---
+
+## 5. Local Setup & Execution
+
+### Prerequisites
+- Python 3.11+ (tested on Python 3.13)
+- SQLite (default) or PostgreSQL
+
+### 1. Installation
+```bash
+pip install -r requirements.txt
 ```
 
+### 2. Environment Configuration
+Copy `.env.example` to `.env` and configure your environment variables:
+```bash
+cp .env.example .env
+```
+
+### 3. Run Web Dashboard & REST API
+```bash
+# Set PYTHONPATH and start Uvicorn
+python -m uvicorn ipo_platform.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+Once started, access the Web Dashboard in your browser at:
+**`http://localhost:8000/`** or **`http://localhost:8000/dashboard`**
+
+API Documentation (when `DOCS_ENABLED=true`):
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+### 4. Run CLI Operations
+```bash
+# Ingest IPO record
+python -m ipo_platform.cli ingest data/samples/sample_ipo.json
+
+# Evaluate recommendation
+python -m ipo_platform.cli evaluate --ipo-id SAMPLE-IPO-001
+
+# Run portfolio allocation
+python -m ipo_platform.cli allocate --capital 500000 --profile MODERATE
+```
+
+### 5. Run Test Suite
+```bash
+# Run complete test suite (215 automated tests)
+python -m unittest discover -s tests -p "test_*.py"
+
+# Run end-to-end integration tests
+python -m unittest tests/test_e2e_integration.py
+```
+
 ---
 
-## 5. Governance & Data Principles
+## 6. Governance & Data Principles
 
 1. **Source Attribution:** Every quantitative datapoint must be accompanied by its primary or secondary source and timestamp.
 2. **Missing Data Transparency:** Never synthesize or hallucinate financial figures. If a metric is not published or disclosed, label it as `"Not available"`.
-3. **Primary vs. Unofficial:** Exchange bid books (NSE/BSE) and statutory filings (SEBI/RHP) take precedence over indicative metrics like Grey Market Premium (GMP).
-4. **Research Only:** The platform does not provide buy/sell/apply advisory services or portfolio management services.
+3. **No Guaranteed Returns:** This platform is strictly an analytical decision-support and research engine. Public IPO investments involve substantial market risk.
+

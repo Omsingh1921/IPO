@@ -270,6 +270,20 @@ def run_sync_sources(args: argparse.Namespace) -> int:
         return 1
 
 
+def run_serve(args: argparse.Namespace) -> int:
+    """
+    Executes 'serve' command to launch the FastAPI REST API platform.
+    """
+    try:
+        from ipo_platform.api.app import run_server
+        sys.stdout.write(f"Starting IPO Platform API Server on {args.host}:{args.port} (reload={args.reload})...\n")
+        run_server(host=args.host, port=args.port, reload=args.reload)
+        return 0
+    except Exception as err:
+        sys.stderr.write(f"API Server Error: {err}\n")
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """
     Constructs the CLI ArgumentParser hierarchy.
@@ -380,6 +394,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="End date filter (YYYY-MM-DD format).",
     )
 
+    # Command: serve
+    serve_parser = subparsers.add_parser("serve", help="Run the FastAPI REST API platform server.")
+    serve_parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host IP interface to bind server to (default: 0.0.0.0).",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="TCP port to bind server to (default: 8000).",
+    )
+    serve_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload on code modifications.",
+    )
+
     return parser
 
 
@@ -401,6 +434,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "migrate": run_migrate,
         "backtest": run_backtest,
         "sync-sources": run_sync_sources,
+        "serve": run_serve,
     }
 
     handler = command_handlers.get(args.subcommand)

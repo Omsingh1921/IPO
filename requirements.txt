@@ -8,3 +8,11 @@ cryptography>=42.0.0
 
 # Distributed Cache / Lock Engine
 redis>=5.0.1
+
+# REST API & Web Server (Phase 10 - Stage 4)
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+
+# Security & Authentication (Phase 10 - Stage 5)
+pyjwt>=2.8.0

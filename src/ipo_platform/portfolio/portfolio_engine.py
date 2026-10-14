@@ -97,16 +97,31 @@ class IPOPortfolioEngine:
                 generated_at=datetime.now(timezone.utc).isoformat(),
             )
 
-        # 1. Normalize input list into (RecommendationResult, sector) tuples
-        items = []
+        # 1. Normalize input list, sanitize sectors, and deduplicate by unique ipo_id
+        deduped_items: Dict[str, Tuple[RecommendationResult, str]] = {}
         for rec_item in recommendations:
             if isinstance(rec_item, tuple):
-                rec, sector = rec_item
+                rec, raw_sector = rec_item
             else:
                 rec = rec_item
-                # When sector is not specified, treat as distinct / general
-                sector = getattr(rec, "sector", getattr(rec, "company_name", "General"))
-            items.append((rec, sector))
+                raw_sector = getattr(rec, "sector", getattr(rec, "company_name", "General"))
+
+            # Normalize missing / whitespace / None sector to "General"
+            sector = str(raw_sector).strip() if (raw_sector and str(raw_sector).strip()) else "General"
+            ipo_id = getattr(rec, "ipo_id", "UNKNOWN")
+
+            if ipo_id in deduped_items:
+                # If duplicate recommendation for same IPO is passed, consolidate to highest conviction
+                existing_rec, existing_sec = deduped_items[ipo_id]
+                if rec.composite_score > existing_rec.composite_score:
+                    deduped_items[ipo_id] = (rec, sector)
+                diversification_notes.append(
+                    f"Duplicate recommendation detected for IPO '{ipo_id}'; consolidated into single position."
+                )
+            else:
+                deduped_items[ipo_id] = (rec, sector)
+
+        items = list(deduped_items.values())
 
         # Sort recommendations by conviction: Composite score descending
         # Prioritize Strong Subscribe > Subscribe > Neutral
@@ -123,13 +138,18 @@ class IPOPortfolioEngine:
             })
 
         # 3. Apply Diversification Constraints
-        # Constraint A: Single position cap <= 35%
+        # Constraint A: Single position cap <= 35% (cumulative per unique IPO)
+        ipo_accumulated = defaultdict(float)
         for item in preliminary_allocs:
-            if item["target_pct"] > strategy.max_single_ipo_pct:
+            ipo_id = item["rec"].ipo_id
+            current_ipo_pct = ipo_accumulated[ipo_id]
+            if current_ipo_pct + item["target_pct"] > strategy.max_single_ipo_pct:
+                allowed_pct = max(0.0, strategy.max_single_ipo_pct - current_ipo_pct)
                 diversification_notes.append(
-                    f"Position {item['rec'].company_name} capped at single-stock limit {strategy.max_single_ipo_pct}%."
+                    f"Position {item['rec'].company_name} ({ipo_id}) capped at single-stock limit {strategy.max_single_ipo_pct}%."
                 )
-                item["target_pct"] = strategy.max_single_ipo_pct
+                item["target_pct"] = allowed_pct
+            ipo_accumulated[ipo_id] += item["target_pct"]
 
         # Constraint B: Sector concentration cap <= 40%
         sector_accumulated = defaultdict(float)
@@ -156,17 +176,18 @@ class IPOPortfolioEngine:
                 f"Pro-rata scaling factor {scale_factor:.3f} applied across all positions."
             )
             for item in preliminary_allocs:
-                item["target_pct"] = round(item["target_pct"] * scale_factor, 4)
+                item["target_pct"] = round(item["target_pct"] * scale_factor, 6)
 
-        # 4. Generate Final Capital Allocation Position Objects
+        # 4. Generate Final Capital Allocation Position Objects with Rounding Protection
         final_allocations: List[CapitalAllocation] = []
-        final_sector_totals = defaultdict(float)
 
         for item in preliminary_allocs:
             rec = item["rec"]
             sector = item["sector"]
-            alloc_pct = item["target_pct"]
-            allocated_amt = (alloc_pct / 100.0) * available_capital
+            alloc_pct = round(item["target_pct"], 2)
+            # Enforce single position cap strictly after rounding
+            alloc_pct = min(alloc_pct, strategy.max_single_ipo_pct)
+            allocated_amt = round((alloc_pct / 100.0) * available_capital, 2)
 
             # Estimate payoffs
             exp_ret, exp_risk = self.risk_engine.estimate_ipo_payoff_profile(
@@ -175,8 +196,8 @@ class IPOPortfolioEngine:
                 risk_level=rec.risk_level,
             )
 
-            # Portfolio weight relative to deployed capital (or total capital)
-            port_weight = alloc_pct / 100.0
+            # Portfolio weight relative to total capital
+            port_weight = round(alloc_pct / 100.0, 4)
 
             rationale_text = (
                 f"{rec.recommendation.value} ({rec.composite_score:.1f}/100) under {profile.value} profile: "
@@ -191,22 +212,55 @@ class IPOPortfolioEngine:
                 sector=sector,
                 recommendation=rec.recommendation,
                 composite_score=rec.composite_score,
-                allocated_amount=round(allocated_amt, 2),
-                allocation_percentage=round(alloc_pct, 2),
-                position_size=round(allocated_amt, 2),
-                portfolio_weight=round(port_weight, 4),
+                allocated_amount=allocated_amt,
+                allocation_percentage=alloc_pct,
+                position_size=allocated_amt,
+                portfolio_weight=port_weight,
                 expected_return=exp_ret,
                 expected_risk=exp_risk,
                 risk_level=rec.risk_level,
                 rationale=rationale_text,
             )
             final_allocations.append(pos)
-            final_sector_totals[sector] += alloc_pct
+
+        # Mathematical Rounding Protection:
+        # Guarantee that sum(allocation_percentage) NEVER exceeds 100.00%
+        total_pct = round(sum(a.allocation_percentage for a in final_allocations), 2)
+        if total_pct > strategy.max_total_allocation_pct:
+            pct_overshoot = round(total_pct - strategy.max_total_allocation_pct, 2)
+            for pos in reversed([p for p in final_allocations if p.allocation_percentage > 0.0]):
+                if pct_overshoot <= 0.0:
+                    break
+                deduct_pct = min(pos.allocation_percentage, pct_overshoot)
+                pos.allocation_percentage = round(pos.allocation_percentage - deduct_pct, 2)
+                pos.allocated_amount = round((pos.allocation_percentage / 100.0) * available_capital, 2)
+                pos.position_size = pos.allocated_amount
+                pos.portfolio_weight = round(pos.allocation_percentage / 100.0, 4)
+                pct_overshoot = round(pct_overshoot - deduct_pct, 2)
+
+        # Mathematical Rounding Protection:
+        # Guarantee that sum(allocated_amount) NEVER exceeds available_capital
+        total_amt = round(sum(a.allocated_amount for a in final_allocations), 2)
+        if total_amt > available_capital:
+            amt_overshoot = round(total_amt - available_capital, 2)
+            for pos in reversed([p for p in final_allocations if p.allocated_amount > 0.0]):
+                if amt_overshoot <= 0.0:
+                    break
+                deduct_amt = min(pos.allocated_amount, amt_overshoot)
+                pos.allocated_amount = round(pos.allocated_amount - deduct_amt, 2)
+                pos.position_size = pos.allocated_amount
+                pos.allocation_percentage = round((pos.allocated_amount / available_capital) * 100.0, 2)
+                pos.portfolio_weight = round(pos.allocated_amount / available_capital, 4)
+                amt_overshoot = round(amt_overshoot - deduct_amt, 2)
 
         # 5. Aggregate Portfolio-Level Metrics
-        total_allocated_capital = sum(a.allocated_amount for a in final_allocations)
-        total_allocated_pct = sum(a.allocation_percentage for a in final_allocations)
-        unallocated_cash = max(0.0, available_capital - total_allocated_capital)
+        final_sector_totals = defaultdict(float)
+        for a in final_allocations:
+            final_sector_totals[a.sector] = round(final_sector_totals[a.sector] + a.allocation_percentage, 2)
+
+        total_allocated_capital = round(sum(a.allocated_amount for a in final_allocations), 2)
+        total_allocated_pct = round(sum(a.allocation_percentage for a in final_allocations), 2)
+        unallocated_cash = round(max(0.0, available_capital - total_allocated_capital), 2)
 
         # 6. Portfolio Risk Calculations
         # Filter active positive allocations for risk calculations
