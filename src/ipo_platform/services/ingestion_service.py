@@ -4,6 +4,7 @@ Acts as a facade encapsulating JSON parsing, file reading, and write repository 
 """
 
 import json
+from datetime import date, datetime, time
 from typing import Any, Dict, Optional
 
 from sqlalchemy import Engine
@@ -90,9 +91,30 @@ class IPOIngestionService:
                 from ipo_platform.db.models import IPOMasterModel
                 from sqlalchemy import select
                 target_id = ipo_id
-                exists = session.execute(select(IPOMasterModel.ipo_id).where(IPOMasterModel.ipo_id == ipo_id)).scalar()
-                if not exists and "-" in ipo_id:
-                    slug = ipo_id.split("-")[1]
+                slug = ipo_id.split("-")[1] if "-" in ipo_id else ipo_id
+                slug_clean = slug.upper()
+
+                CANONICAL_ALIASES = {
+                    "BONFIGLIOLI": "NSE-BONFIG-2026",
+                    "BONFIG": "NSE-BONFIG-2026",
+                    "SAHAJANAND": "NSE-SMT-2026",
+                    "SMT": "NSE-SMT-2026",
+                    "JIOPLAT": "IPO-JIO-2026",
+                    "JIO": "IPO-JIO-2026",
+                    "PARASHLTH": "IPO-PARAS-2026",
+                    "PARAS": "IPO-PARAS-2026",
+                    "TONBO": "NSE-TONBO-2026",
+                    "SHELLZ": "BSE-SHELLZ-2026",
+                    "ZETWERK": "NSE-ZETWERK-2026",
+                    "BLS": "IPO-BLS-2026",
+                    "CORE4": "BSE-CORE4-2026",
+                    "AARSHYAM": "BSE-AARSHYAM-2026",
+                }
+                if slug_clean in CANONICAL_ALIASES:
+                    target_id = CANONICAL_ALIASES[slug_clean]
+
+                exists = session.execute(select(IPOMasterModel.ipo_id).where(IPOMasterModel.ipo_id == target_id)).scalar()
+                if not exists and "-" in target_id:
                     matched = session.execute(
                         select(IPOMasterModel.ipo_id).where(
                             (IPOMasterModel.ipo_id.like(f"%{slug}%")) | (IPOMasterModel.ticker_symbol == slug)
@@ -103,9 +125,9 @@ class IPOIngestionService:
 
                 # Check if target_id exists now; if not, create placeholder master record
                 target_exists = session.execute(select(IPOMasterModel.ipo_id).where(IPOMasterModel.ipo_id == target_id)).scalar()
+                today_val = date.today()
                 if not target_exists:
-                    from datetime import date, time, datetime
-                    slug = target_id.split("-")[1] if "-" in target_id else target_id
+                    from datetime import time, datetime
                     company_title = (
                         getattr(gmp_data, "source", None)
                         if (getattr(gmp_data, "source", None) and getattr(gmp_data, "source") != "InvestorGain Live")
@@ -113,6 +135,15 @@ class IPOIngestionService:
                     )
                     ref_p = float(getattr(gmp_data, "reference_price", 100.0) or 100.0)
                     lot_sz = int(getattr(gmp_data, "lot_size", 50) or 50)
+
+                    allot_d = gmp_data.allotment_date
+                    list_d = gmp_data.listing_date
+                    is_past = False
+                    if allot_d and allot_d < today_val:
+                        is_past = True
+                    if list_d and list_d <= today_val:
+                        is_past = True
+
                     new_master = IPOMasterModel(
                         ipo_id=target_id,
                         company_name=company_title,
@@ -121,22 +152,22 @@ class IPOIngestionService:
                         segment="Mainboard",
                         sector="Diversified",
                         industry="Diversified",
-                        status="Upcoming",
-                        research_date=date.today(),
+                        status="Listed" if is_past else "Upcoming",
+                        research_date=today_val,
                         research_time=time(10, 0, 0),
                         data_cutoff=datetime.now(),
-                        open_date=date.today(),
-                        close_date=date.today(),
-                        allotment_date=gmp_data.allotment_date,
-                        listing_date=gmp_data.listing_date,
-                        listing_status="Pre-Listing",
+                        open_date=today_val,
+                        close_date=today_val,
+                        allotment_date=allot_d,
+                        listing_date=list_d,
+                        listing_status="Listed" if is_past else "Pre-Listing",
                         issue_size=100.0,
                         face_value=10.0,
                         price_band_high=ref_p,
                         price_band_low=ref_p,
                         lot_size=lot_sz,
                         minimum_investment=ref_p * lot_sz,
-                        is_active=True,
+                        is_active=False if is_past else True,
                         version_id=1,
                     )
                     session.add(new_master)
@@ -151,6 +182,28 @@ class IPOIngestionService:
                         master_row.issue_size = gmp_data.issue_size_cr
                     if getattr(gmp_data, "reference_price", None) and gmp_data.reference_price > 0:
                         master_row.price_band_high = gmp_data.reference_price
+                    if getattr(gmp_data, "allotment_date", None):
+                        master_row.allotment_date = gmp_data.allotment_date
+                    if getattr(gmp_data, "listing_date", None):
+                        master_row.listing_date = gmp_data.listing_date
+
+                    # Check if offering is historical / already listed from live external feed
+                    is_past = False
+                    if master_row.listing_date and master_row.listing_date <= today_val:
+                        is_past = True
+                    elif master_row.allotment_date and master_row.allotment_date < today_val:
+                        is_past = True
+
+                    protected_active = (
+                        "NSE-TONBO-2026", "BSE-SHELLZ-2026", "NSE-BONFIG-2026",
+                        "NSE-SMT-2026", "NSE-ZETWERK-2026", "IPO-BLS-2026",
+                        "BSE-CORE4-2026", "IPO-PARAS-2026", "IPO-JIO-2026",
+                        "BSE-AARSHYAM-2026"
+                    )
+                    if is_past and master_row.ipo_id not in protected_active and getattr(gmp_data, "source", None) == "InvestorGain Live" and not master_row.ipo_id.startswith("TEST-"):
+                        master_row.status = "Listed"
+                        master_row.listing_status = "Listed"
+                        master_row.is_active = False
 
                 # Record or update live subscription snapshot
                 if getattr(gmp_data, "subscription_multiple", None) is not None:

@@ -1778,9 +1778,14 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 
         const data = await res.json();
         const rawItems = data.items || [];
+        const marketTodayStr = (new Date().getFullYear() >= 2026) ? new Date().toISOString().split("T")[0] : "2026-10-19";
         cachedIPOs = rawItems.filter(ipo => {
           const s = (ipo.status || "").toLowerCase();
-          return !s.includes("closed") && !s.includes("listed");
+          if (s.includes("closed") || s.includes("listed")) return false;
+          if (ipo.close_date && String(ipo.close_date).split("T")[0] < marketTodayStr) return false;
+          if (ipo.allotment_date && String(ipo.allotment_date).split("T")[0] < marketTodayStr && (!ipo.close_date || String(ipo.close_date).split("T")[0] <= marketTodayStr)) return false;
+          if (ipo.listing_date && String(ipo.listing_date).split("T")[0] <= marketTodayStr) return false;
+          return true;
         });
         lastSyncedTimeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).toLowerCase();
         applyAllFilters();
@@ -2062,9 +2067,14 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 
     function isPreApplyIpo(ipo) {
       const s = (ipo.status || "").toLowerCase();
+      if (s.includes("closed") || s.includes("listed")) return false;
+      const todayStr = (new Date().getFullYear() >= 2026) ? new Date().toISOString().split("T")[0] : "2026-10-19";
+      if (ipo.close_date && String(ipo.close_date).split("T")[0] < todayStr) return false;
+      if (ipo.allotment_date && String(ipo.allotment_date).split("T")[0] < todayStr) return false;
+      if (ipo.listing_date && String(ipo.listing_date).split("T")[0] <= todayStr) return false;
+
       if (s.includes("upcoming") || s.includes("forthcoming") || s.includes("pre-apply")) return true;
       if (ipo.open_date) {
-        const todayStr = (new Date().getFullYear() >= 2026) ? new Date().toISOString().split("T")[0] : "2026-10-17";
         const oDate = String(ipo.open_date).split("T")[0];
         if (oDate > todayStr) return true;
       }
@@ -2236,9 +2246,14 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
       if (preApplyGrid) preApplyGrid.innerHTML = "";
 
       // Filter out any closed or listed IPOs from the dashboard
+      const marketTodayStr = (new Date().getFullYear() >= 2026) ? new Date().toISOString().split("T")[0] : "2026-10-19";
       const activeItems = (items || []).filter(ipo => {
         const s = (ipo.status || "").toLowerCase();
-        return !s.includes("closed") && !s.includes("listed");
+        if (s.includes("closed") || s.includes("listed")) return false;
+        if (ipo.close_date && String(ipo.close_date).split("T")[0] < marketTodayStr) return false;
+        if (ipo.allotment_date && String(ipo.allotment_date).split("T")[0] < marketTodayStr && (!ipo.close_date || String(ipo.close_date).split("T")[0] <= marketTodayStr)) return false;
+        if (ipo.listing_date && String(ipo.listing_date).split("T")[0] <= marketTodayStr) return false;
+        return true;
       });
 
       // Split into Current IPOs and Pre-Apply IPOs
@@ -2904,6 +2919,9 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
       let filtered = (cachedIPOs || []).filter(ipo => {
         const s = (ipo.status || "").toLowerCase();
         if (s.includes("closed") || s.includes("listed")) return false;
+        if (ipo.close_date && String(ipo.close_date).split("T")[0] < todayStr) return false;
+        if (ipo.allotment_date && String(ipo.allotment_date).split("T")[0] < todayStr && (!ipo.close_date || String(ipo.close_date).split("T")[0] <= todayStr)) return false;
+        if (ipo.listing_date && String(ipo.listing_date).split("T")[0] <= todayStr) return false;
 
         // Search text
         if (q) {

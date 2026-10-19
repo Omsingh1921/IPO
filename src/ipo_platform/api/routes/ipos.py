@@ -75,6 +75,19 @@ def _to_list_item(rec: MasterIPORecord) -> IPOListItem:
         if gmp_ld and str(gmp_ld).strip():
             listing_date = str(gmp_ld).split("T")[0].strip()
 
+    # Dynamic status reconciliation based on dates
+    from datetime import date
+    today_str = "2026-10-19" if date.today().year < 2026 else date.today().isoformat()
+    if ipo_status_val in ("Upcoming", "Forthcoming", "PRE-APPLY"):
+        if listing_date and str(listing_date) <= today_str:
+            ipo_status_val = "Listed"
+        elif allotment_date and str(allotment_date) < today_str and (not close_date or str(close_date) <= today_str):
+            ipo_status_val = "Closed"
+        elif close_date and str(close_date) < today_str:
+            ipo_status_val = "Closed"
+        elif close_date and str(close_date) == today_str:
+            ipo_status_val = "Closing Today"
+
     # GMP
     gmp_pct = None
     if rec.gmp_data and hasattr(rec.gmp_data, "gmp_percentage"):
