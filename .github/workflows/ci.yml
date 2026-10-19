@@ -68,7 +68,14 @@ jobs:
 
       - name: Run Alembic Upgrade (Head)
         run: |
-          python -m alembic upgrade head
+          echo "### Alembic Upgrade ($DATABASE_URL)" >> $GITHUB_STEP_SUMMARY
+          if ! python -m alembic upgrade head 2>&1 | tee alembic_out.log; then
+            echo "### Alembic Upgrade Failed!" >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            cat alembic_out.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
 
       - name: Run Alembic Downgrade (Revert 1 Revision)
         run: |
