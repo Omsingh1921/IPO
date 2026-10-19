@@ -19,3 +19,9 @@ pyjwt>=2.8.0
 
 # Streaming & Change Data Capture
 kafka-python-ng>=2.2.2
+
+# Configuration & Web Scraping & Testing Client
+python-dotenv>=1.0.0
+beautifulsoup4>=4.12.0
+httpx>=0.26.0
+requests>=2.31.0
