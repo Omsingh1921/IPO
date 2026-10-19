@@ -55,6 +55,7 @@ def upgrade() -> None:
         sa.Column("data_cutoff", sa.DateTime(), nullable=False),
         sa.Column("open_date", sa.Date(), nullable=False),
         sa.Column("close_date", sa.Date(), nullable=False),
+        sa.Column("allotment_date", sa.Date(), nullable=True),
         sa.Column("listing_date", sa.Date(), nullable=True),
         sa.Column("listing_status", sa.String(64), nullable=False, server_default="Pre-Listing"),
         sa.Column("issue_size", sa.Numeric(14, 2), nullable=False),
@@ -350,7 +351,49 @@ def upgrade() -> None:
     op.create_index("idx_pevent_date", "performance_events", ["event_date"])
 
 
+    # 15. User Wishlist Table
+    op.create_table(
+        "user_wishlist",
+        sa.Column("id", sa.BigInteger().with_variant(sa.Integer(), "sqlite"), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.String(128), nullable=False),
+        sa.Column("ipo_id", sa.String(64), sa.ForeignKey("ipo_master.ipo_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False),
+        sa.Column("company_name", sa.String(255), nullable=True),
+        sa.Column("notes", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.UniqueConstraint("user_id", "ipo_id", name="uq_user_ipo_wishlist"),
+    )
+    op.create_index("idx_wishlist_user", "user_wishlist", ["user_id"])
+    op.create_index("idx_wishlist_ipo", "user_wishlist", ["ipo_id"])
+
+    # 16. User Wishlist History Table
+    op.create_table(
+        "user_wishlist_history",
+        sa.Column("id", sa.BigInteger().with_variant(sa.Integer(), "sqlite"), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.String(128), nullable=False),
+        sa.Column("ipo_id", sa.String(64), sa.ForeignKey("ipo_master.ipo_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False),
+        sa.Column("company_name", sa.String(255), nullable=True),
+        sa.Column("segment", sa.String(64), nullable=True),
+        sa.Column("issue_price", sa.Numeric(10, 2), nullable=True),
+        sa.Column("listing_price", sa.Numeric(10, 2), nullable=True),
+        sa.Column("listing_gain_pct", sa.Numeric(8, 2), nullable=True),
+        sa.Column("listing_date", sa.Date(), nullable=True),
+        sa.Column("listing_day_close", sa.Numeric(10, 2), nullable=True),
+        sa.Column("status", sa.String(64), nullable=False),
+        sa.Column("notes", sa.Text(), nullable=True),
+        sa.Column("wishlist_added_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.UniqueConstraint("user_id", "ipo_id", name="uq_user_ipo_wishlist_hist"),
+    )
+    op.create_index("idx_wishlist_hist_ipo", "user_wishlist_history", ["ipo_id"])
+    op.create_index("idx_wishlist_hist_user", "user_wishlist_history", ["user_id"])
+    op.create_index("idx_wishlist_hist_date", "user_wishlist_history", ["listing_date"])
+
+
 def downgrade() -> None:
+    op.drop_table("user_wishlist_history")
+    op.drop_table("user_wishlist")
     op.drop_table("performance_events")
     op.drop_table("historical_performance")
     op.drop_table("scenarios")

@@ -62,10 +62,6 @@ jobs:
           # Warning check for complexity
           flake8 src tests --count --exit-zero --max-complexity=15 --max-line-length=130 --statistics
 
-      - name: Run Complete Test Suite (Pre-Migration)
-        run: |
-          python -m unittest discover -s tests -p "test_*.py" -v
-
       - name: Run Alembic Upgrade (Head)
         run: |
           python -m alembic upgrade head
@@ -78,6 +74,6 @@ jobs:
         run: |
           python -m alembic upgrade head
 
-      - name: Re-run Complete Test Suite (Post-Migration Integrity Verification)
+      - name: Run Complete Test Suite
         run: |
           python -m unittest discover -s tests -p "test_*.py" -v
