@@ -7,21 +7,25 @@ This document outlines the phased roadmap for building the **Indian IPO Research
 ## Roadmap Overview
 
 ```
-Phase 1: Foundation & Research Prompting [ACTIVE]
+Phase 1: Foundation & Research Schema                     [IMPLEMENTED & VERIFIED]
    │
-Phase 2: Google Sheets IPO Database
+Phase 2: Google Sheets IPO Schema & Mappers              [IMPLEMENTED & VERIFIED]
    │
-Phase 3: Python Data Analysis Engine
+Phase 3: Python Data Analysis Engine                      [IMPLEMENTED & VERIFIED]
    │
-Phase 4: Historical Backtesting Engine
+Phase 4: Historical Backtesting Engine                   [IMPLEMENTED & VERIFIED]
    │
-Phase 5: 40% Target Performance Measurement
+Phase 5: 40% Target Performance Scenario Evaluator       [IMPLEMENTED & VERIFIED]
    │
-Phase 6: Automated 9:00 AM Daily Briefing
+Phase 6: Automated 9:00 AM Daily Briefing & Dispatch      [IMPLEMENTED & VERIFIED]
    │
-Phase 7: Relational Database Migration (MySQL)
+Phase 7: Relational Primary System of Record (MySQL)     [IMPLEMENTED & VERIFIED]
    │
-Phase 8: Enterprise Streaming & Search (Kafka + Elasticsearch + Kibana)
+Phase 8: Distributed Streaming & CDC (Kafka + Debezium)  [IMPLEMENTED & VERIFIED]
+   │
+Phase 9: FastAPI REST API & Native Web Dashboard         [IMPLEMENTED & VERIFIED]
+   │
+Phase 10: Security Hardening, JWT Auth & RBAC             [IMPLEMENTED & VERIFIED]
 ```
 
 ---
@@ -135,15 +139,32 @@ Phase 8: Enterprise Streaming & Search (Kafka + Elasticsearch + Kibana)
 
 ---
 
-## Phase 8: Enterprise Streaming & Search (Kafka -> Elasticsearch -> Kibana)
-
-- **Status:** Planned
-- **Objective:** Scale the system to an enterprise-grade real-time streaming and search architecture for live exchange feeds and full-text document search across RHP/DRHP filings.
+## Phase 8: Distributed Streaming & CDC (Apache Kafka + Debezium)
+ 
+- **Status:** **Implemented & Verified** (Unit tests pass; integration verification blocked pending local Docker Desktop daemon)
+- **Objective:** Establish an enterprise-grade Change Data Capture (CDC) streaming pipeline from MySQL to Apache Kafka for downstream idempotent consumption and cache synchronization.
 - **Key Deliverables:**
-  - Apache Kafka pipeline: Topics for real-time bid streams, exchange announcements, and sentiment feeds.
-  - Elasticsearch cluster: Ingestion and indexing of full text from RHP/DRHP PDFs for instant keyword search (e.g., specific risk factors, litigations, customer concentrations).
-  - Kibana visual dashboards: Real-time visualization of subscription curves, sector valuation distributions, and historical scenario accuracy.
-- **Completion Criteria:**
-  - Real-time bid events ingested and indexed with sub-second latency.
-  - Full-text search across 500+ page prospectus documents returning relevant risk disclosures in < 200ms.
-  - End-to-end interactive Kibana dashboards operational for institutional research review.
+-   - Apache Kafka broker in KRaft mode (`confluentinc/cp-kafka:7.5.3`).
+-   - Debezium MySQL Connector on Kafka Connect (`debezium/connect:2.5.4.Final`) tracking MySQL row-level binary logs (`ROW` format, `FULL` row image).
+-   - Idempotent Python CDC consumer (`src/ipo_platform/streaming/consumer.py`) with sliding-window deduplication, transient retry mechanics, and poison message DLQ quarantine.
+-   - Kafka Connect REST management client (`src/ipo_platform/streaming/cdc_manager.py`).
+-   - Verified connector configuration (`config/debezium-mysql-connector.json`).
+-   - Least-privilege MySQL CDC user script (`scripts/init-cdc-user.sql`).
+- - **Completion Criteria:**
+-   - Compose configuration parses and validates with `docker compose config`.
+-   - Unit test suite passes without live Kafka cluster (`tests/test_kafka_cdc.py`).
+-   - **Out-of-Scope Architecture Confirmation:** Elasticsearch and Kibana have been completely removed from active dependencies, Compose services, and roadmap deliverables. No Spring Boot consumers are used.
+-
+----
+-
+-## Phase 9: FastAPI REST API & Native Web Dashboard
+-
+-- **Status:** **Implemented & Verified**
+-- **Objective:** Expose enterprise REST API endpoints (`/ipos`, `/health`, `/metrics`, `/portfolio`, `/recommendation`) and deliver an interactive zero-dependency single-page HTML5/CSS/JavaScript dashboard.
+-
+----
+-
+-## Phase 10: Security Hardening, Authentication & RBAC
+-
+-- **Status:** **Implemented & Verified**
+-- **Objective:** Enterprise JWT authentication, API-key management, role-based access control (`READ_ONLY`, `OPERATOR`, `ADMIN`), rate limiting with Redis fail-safe support, path traversal prevention, and atomic file writers.

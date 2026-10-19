@@ -557,7 +557,7 @@ To ensure scientific validity in Phase 4 backtesting, the schema enforces a stri
 
 ### 5.1 Primary Key Strategy
 - **Surrogate Primary Key (`id` BIGINT UNSIGNED AUTO_INCREMENT):** Used across all tables as the clustered index key in InnoDB, guaranteeing sequential write performance, optimal page fill factors, and minimal leaf-node fragmentation.
-- **Natural / Business Key (`ipo_id` VARCHAR(64) UNIQUE):** Immutable, human-readable slug (e.g., `IND-MB-2026-MONEYVIEW`) used as the foreign key target across child tables. This decouples database row IDs from downstream Kafka message keys and Elasticsearch document IDs.
+- **Natural / Business Key (`ipo_id` VARCHAR(64) UNIQUE):** Immutable, human-readable slug (e.g., `IND-MB-2026-MONEYVIEW`) used as the foreign key target across child tables. This decouples database row IDs from downstream Kafka message keys.
 
 ### 5.2 Referential Integrity Rules
 - **100% Delete-Safe Architecture:** All 25 foreign key constraints across the schema strictly enforce `ON UPDATE CASCADE ON DELETE RESTRICT`. Cascading deletes (`ON DELETE CASCADE`) are completely barred from the platform, guaranteeing that no historical IPO master record, audited financial statement, subscription observation, anchor placement, GMP log, risk factor, scenario calculation, or backtesting price event can ever be deleted through an accidental parent removal.
@@ -1008,7 +1008,7 @@ CREATE TABLE IF NOT EXISTS performance_events (
 
 ## 9. Sample Relational Mapping: Moneyview Limited
 
-Mapped directly from the audited research report ([reports/phase1_current_ipo_research.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/reports/phase1_current_ipo_research.md)) without executing or inserting data:
+Mapped directly from the audited research report ([reports/phase1_current_ipo_research.md](../reports/phase1_current_ipo_research.md)) without executing or inserting data:
 
 ### Insert into `sources`
 ```sql

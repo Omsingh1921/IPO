@@ -9,11 +9,19 @@ from ipo_platform.jobs.execution_history import (
     JobExecutionHistoryRepository,
     JobExecutionStatus,
 )
+from ipo_platform.jobs.live_sync_job import (
+    DEFAULT_MARKET_HOURS_SLOTS,
+    is_market_trading_day,
+    run_live_market_sync_job,
+)
 from ipo_platform.jobs.locks import DistributedLock, RedisDistributedLock
 from ipo_platform.jobs.scheduler import JobScheduler
 
 __all__ = [
     "run_daily_briefing_job",
+    "run_live_market_sync_job",
+    "is_market_trading_day",
+    "DEFAULT_MARKET_HOURS_SLOTS",
     "JobScheduler",
     "DistributedJobScheduler",
     "DistributedLock",
@@ -21,4 +29,5 @@ __all__ = [
     "JobExecutionHistoryRepository",
     "JobExecutionStatus",
 ]
+
 

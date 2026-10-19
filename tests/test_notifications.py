@@ -105,13 +105,14 @@ class TestNotifications(unittest.TestCase):
         self.assertIn("dispatched successfully", res.message)
 
     def test_email_notifier_unconfigured(self):
-        notifier = EmailNotifier(smtp_host=None, from_addr=None, to_addr=None)
-        self.assertFalse(notifier.is_configured)
-        self.assertEqual(notifier.channel, NotificationChannel.EMAIL)
+        with patch.dict(os.environ, {"SMTP_HOST": "", "SMTP_USER": "", "MAIL_USERNAME": "", "EMAIL_FROM": "", "EMAIL_TO": "", "NOTIFICATION_EMAIL_TO": ""}):
+            notifier = EmailNotifier(smtp_host=None, from_addr=None, to_addr=None)
+            self.assertFalse(notifier.is_configured)
+            self.assertEqual(notifier.channel, NotificationChannel.EMAIL)
 
-        res = notifier.send(self.test_message)
-        self.assertFalse(res.success)
-        self.assertIn("not configured", res.message)
+            res = notifier.send(self.test_message)
+            self.assertFalse(res.success)
+            self.assertIn("not configured", res.message)
 
     def test_email_notifier_dry_run(self):
         notifier = EmailNotifier(

@@ -152,13 +152,15 @@ class DistributedJobScheduler:
         self,
         job_name: str,
         job_func: Callable[..., Any],
-        execution_time: str = "09:00",
+        execution_time: Optional[str] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
         """
         Schedules a daily distributed recurring job loop.
         """
+        target_exec_time = execution_time or os.getenv("BRIEFING_EXECUTION_TIME", "12:01")
+
         with self._lock:
             if job_name in self._scheduled_threads:
                 logger.warning("Job '%s' is already registered in distributed scheduler.", job_name)
@@ -167,14 +169,14 @@ class DistributedJobScheduler:
             self._is_running = True
 
         def _worker_loop() -> None:
-            logger.info("Starting distributed worker loop for '%s' (daily at %s %s)", job_name, execution_time, self.tz.tzname(None))
+            logger.info("Starting distributed worker loop for '%s' (daily at %s %s)", job_name, target_exec_time, self.tz.tzname(None))
             while True:
                 with self._lock:
                     if not self._is_running:
                         break
 
                 now = datetime.now(self.tz)
-                target_hour, target_minute = map(int, execution_time.split(":"))
+                target_hour, target_minute = map(int, target_exec_time.split(":"))
                 target_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
 
                 # Check database to see if job already completed today
@@ -205,6 +207,46 @@ class DistributedJobScheduler:
             thread = threading.Thread(target=_worker_loop, name=f"dist-scheduler-{job_name}", daemon=True)
             self._scheduled_threads[job_name] = thread
             thread.start()
+
+    def schedule_market_hours_sync(
+        self,
+        execution_times: Optional[List[str]] = None,
+        check_trading_day: bool = True,
+        dry_run: bool = False,
+    ) -> List[str]:
+        """
+        Schedules automated market-hours synchronization across BSE, NSE, and GMP
+        in a distributed cluster environment enforcing idempotency and distributed locks.
+        Defaults to 09:15 Market Open, 13:00 Mid-Day, 17:00 Market Close IST.
+        """
+        from ipo_platform.jobs.live_sync_job import DEFAULT_MARKET_HOURS_SLOTS, run_live_market_sync_job
+
+        slots = execution_times or DEFAULT_MARKET_HOURS_SLOTS
+        registered = []
+
+        for slot_time in slots:
+            slot_clean = slot_time.strip()
+            job_name = f"market_sync_{slot_clean.replace(':', '')}"
+
+            def _create_slot_runner(j_name: str):
+                return lambda: run_live_market_sync_job(
+                    engine=self.engine,
+                    dry_run=dry_run,
+                    job_name=j_name,
+                    check_trading_day=check_trading_day,
+                    node_id=self.node_id,
+                    tz=self.tz,
+                )
+
+            self.schedule_daily_job(
+                job_name=job_name,
+                job_func=_create_slot_runner(job_name),
+                execution_time=slot_clean,
+            )
+            registered.append(job_name)
+
+        logger.info("Distributed market hours synchronization scheduled for IST slots: %s", registered)
+        return registered
 
     def stop_all(self) -> None:
         """Stops all background scheduler loops safely."""

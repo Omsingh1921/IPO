@@ -8,6 +8,7 @@ from .valuation_normalizer import ValuationNormalizer
 from .growth_analytics import GrowthAnalytics
 from .subscription_momentum import SubscriptionMomentumEngine
 from .dataset_normalizer import DatasetNormalizer
+from .rhp_parser import RHPProspectusParser
 
 __all__ = [
     "IPODataReader",
@@ -15,4 +16,5 @@ __all__ = [
     "GrowthAnalytics",
     "SubscriptionMomentumEngine",
     "DatasetNormalizer",
+    "RHPProspectusParser",
 ]

@@ -15,6 +15,7 @@ Architecture & Operational Characteristics:
 """
 
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -74,7 +75,7 @@ class JobScheduler:
         self,
         job_name: str,
         job_func: Callable[..., Any],
-        execution_time: str = "09:00",
+        execution_time: Optional[str] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -84,10 +85,12 @@ class JobScheduler:
         Args:
             job_name: Unique identifier string for the scheduled job thread.
             job_func: Callable target job function.
-            execution_time: Target execution time string (HH:MM in 24h format).
+            execution_time: Target execution time string (HH:MM in 24h format, defaults to BRIEFING_EXECUTION_TIME or 12:01).
             *args: Positional arguments passed to job function.
             **kwargs: Keyword arguments passed to job function.
         """
+        target_exec_time = execution_time or os.getenv("BRIEFING_EXECUTION_TIME", "12:01")
+
         with self._lock:
             if job_name in self._scheduled_threads:
                 logger.warning("Job '%s' is already scheduled. Ignoring duplicate schedule request.", job_name)
@@ -99,7 +102,7 @@ class JobScheduler:
             logger.info(
                 "Job '%s' scheduled for daily execution at %s %s",
                 job_name,
-                execution_time,
+                target_exec_time,
                 self.tz.tzname(None) if self.tz else "Local",
             )
             while True:
@@ -108,7 +111,7 @@ class JobScheduler:
                         break
 
                 now = datetime.now(self.tz)
-                target_hour, target_minute = map(int, execution_time.split(":"))
+                target_hour, target_minute = map(int, target_exec_time.split(":"))
                 target_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
 
                 # If time today has passed or job already ran today, advance to next day
@@ -158,6 +161,120 @@ class JobScheduler:
             thread = threading.Thread(target=_scheduler_loop, name=f"scheduler-{job_name}", daemon=True)
             self._scheduled_threads[job_name] = thread
             thread.start()
+
+    def schedule_interval_job(
+        self,
+        job_name: str,
+        job_func: Callable[..., Any],
+        interval_seconds: float = 300.0,
+        run_immediately: bool = True,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Schedules a recurring interval job execution (e.g. every 5 minutes).
+
+        Args:
+            job_name: Unique identifier string for the scheduled job thread.
+            job_func: Callable target job function.
+            interval_seconds: Delay in seconds between successive executions (defaults to 300.0).
+            run_immediately: If True, executes once immediately upon scheduling before the first sleep.
+            *args: Positional arguments passed to job function.
+            **kwargs: Keyword arguments passed to job function.
+        """
+        with self._lock:
+            if job_name in self._scheduled_threads:
+                logger.warning("Interval job '%s' is already scheduled. Ignoring duplicate request.", job_name)
+                return
+
+            self._is_running = True
+
+        def _interval_loop() -> None:
+            logger.info(
+                "Interval job '%s' scheduled to run every %.1f seconds (run_immediately=%s)",
+                job_name,
+                interval_seconds,
+                run_immediately,
+            )
+            if run_immediately:
+                try:
+                    logger.info("Executing initial run for interval job: %s", job_name)
+                    job_func(*args, **kwargs)
+                except Exception as err:
+                    logger.error("Error in initial run of interval job '%s': %s", job_name, err, exc_info=True)
+
+            while True:
+                slept = 0.0
+                while slept < interval_seconds:
+                    with self._lock:
+                        if not self._is_running:
+                            return
+                    chunk = min(0.5, interval_seconds - slept)
+                    time.sleep(chunk)
+                    slept += chunk
+
+                with self._lock:
+                    should_run = self._is_running
+
+                if should_run:
+                    try:
+                        logger.debug("Executing scheduled interval job: %s", job_name)
+                        job_func(*args, **kwargs)
+                    except Exception as err:
+                        logger.error("Error executing interval job '%s': %s", job_name, err, exc_info=True)
+
+        with self._lock:
+            thread = threading.Thread(target=_interval_loop, name=f"scheduler-interval-{job_name}", daemon=True)
+            self._scheduled_threads[job_name] = thread
+            thread.start()
+
+    def schedule_market_hours_sync(
+        self,
+        engine: Any,
+        execution_times: Optional[List[str]] = None,
+        check_trading_day: bool = True,
+        dry_run: bool = False,
+    ) -> List[str]:
+        """
+        Schedules automated market-hours synchronization across BSE, NSE, and GMP.
+        Defaults to 09:15 Market Open, 13:00 Mid-Day, 17:00 Market Close IST.
+
+        Args:
+            engine: SQLAlchemy Engine instance.
+            execution_times: List of HH:MM IST strings (defaults to ["09:15", "13:00", "17:00"]).
+            check_trading_day: Enforce Monday-Friday trading calendar guard.
+            dry_run: Whether to simulate updates without persisting.
+
+        Returns:
+            List of registered job names.
+        """
+        from ipo_platform.jobs.live_sync_job import DEFAULT_MARKET_HOURS_SLOTS, run_live_market_sync_job
+
+        slots = execution_times or DEFAULT_MARKET_HOURS_SLOTS
+        registered = []
+
+        for slot_time in slots:
+            slot_clean = slot_time.strip()
+            job_name = f"market_sync_{slot_clean.replace(':', '')}"
+
+            def _create_slot_runner(j_name: str):
+                return lambda: run_live_market_sync_job(
+                    engine=engine,
+                    dry_run=dry_run,
+                    job_name=j_name,
+                    check_trading_day=check_trading_day,
+                    tz=self.tz,
+                )
+
+            self.schedule_daily_job(
+                job_name=job_name,
+                job_func=_create_slot_runner(job_name),
+                execution_time=slot_clean,
+            )
+            registered.append(job_name)
+
+        logger.info("Market hours synchronization scheduled for IST slots: %s", registered)
+        return registered
 
     def stop_all(self) -> None:
         """Stops all scheduled background job scheduler threads safely."""

@@ -26,14 +26,15 @@ flowchart TD
         H5 --> I6[Automated 9:00 AM Market Digest]
     end
 
-    subgraph "Phase 7: Relational Migration"
-        F3 & G4 --> J7[(MySQL Structured Database)]
+    subgraph "Phase 7: Relational Primary System of Record"
+        F3 & G4 --> J7[(MySQL Primary System of Record)]
     end
 
-    subgraph "Phase 8: Distributed Streaming & Search"
-        J7 & K8[Real-time Exchange Feeds] --> L8[Apache Kafka Topics]
-        L8 --> M8[Elasticsearch Cluster]
-        M8 --> N8[Kibana Dashboards & Visualizations]
+    subgraph "Phase 8: Distributed Streaming & Change Data Capture (CDC)"
+        J7 --> K8[MySQL Binary Log]
+        K8 --> L8[Debezium MySQL Connector on Kafka Connect]
+        L8 --> M8[Apache Kafka Topics]
+        M8 --> N8[Idempotent Python CDC Consumer]
     end
 ```
 
@@ -44,7 +45,7 @@ flowchart TD
 ### Phase 1: Gemini Scheduled IPO Research (Current)
 - **Objective:** Deploy standardized prompt templates allowing Gemini to ingest unstructured prospectus text, exchange metrics, and market conditions to produce uniform, high-signal IPO research reports.
 - **Components:**
-  - **Prompt Registry:** Master prompt with strict analytical guardrails, valuation formulas, and scenario guidelines ([prompts/phase1_ipo_research_prompt.md](file:///c:/Users/omsin/OneDrive/Desktop/IPO-Recomendation-platform/prompts/phase1_ipo_research_prompt.md)).
+  - **Prompt Registry:** Master prompt with strict analytical guardrails, valuation formulas, and scenario guidelines ([phase1_ipo_research_prompt.md](../prompts/phase1_ipo_research_prompt.md)).
   - **Output Artifacts:** Markdown-based research reports stored in `reports/` following a standardized 13-section structure.
   - **Validation Principles:** Explicit source tracking, distinction between verified vs. indicative metrics, and prohibition of guaranteed profit claims.
 
@@ -97,12 +98,14 @@ flowchart TD
     - `gmp_history`: Time-series tracking of indicative grey market rates with timestamps.
     - `outcomes`: Listing price, 52-week highs/lows, benchmark returns.
 
-### Phase 8: Kafka -> Elasticsearch -> Kibana (Real-Time & Distributed Analytics)
-- **Objective:** High-throughput event streaming, full-text prospectus indexing, and visual analytics dashboards.
+### Phase 8: Apache Kafka & Debezium CDC (Streaming Pipeline)
+- **Objective:** Event-driven Change Data Capture (CDC) streaming MySQL database changes to Kafka topics for downstream idempotent consumption and cache synchronization.
 - **Components:**
-  - **Apache Kafka:** Event streaming bus ingesting real-time exchange order book feeds, news alerts, and regulatory filings into partitioned topics (`ipo-bids-topic`, `gmp-feed-topic`, `regulatory-filings`).
-  - **Elasticsearch:** Distributed search engine providing full-text search across DRHP/RHP filings (e.g., searching litigations, supply dependencies, specific customer concentrations) and storing structured metrics.
-  - **Kibana:** Executive dashboards rendering live subscription heatmaps, historical listing gain distributions, peer valuation scatterplots, and real-time alerts.
+  - **Primary System of Record:** MySQL 8.0 remains the sole authoritative data store.
+  - **Debezium MySQL Connector:** Running on Kafka Connect (`debezium/connect:2.5.4.Final`), tailing MySQL row-level binary logs (`ROW` format, `FULL` row image) into partitioned Kafka topics (`ipo_cdc.ipo_db.*`).
+  - **Apache Kafka:** Event streaming message broker in KRaft mode (`confluentinc/cp-kafka:7.5.3`).
+  - **Idempotent Python CDC Consumer:** Subscribes to CDC topics, enforces idempotency deduplication across binlog coordinates, applies exponential backoff retries, and quarantines poison messages to a Dead-Letter Queue (DLQ).
+  - **Scope Boundary:** Elasticsearch and Kibana are strictly out of scope and are not part of the active platform architecture. No Spring Boot services or consumers are utilized.
 
 ---
 

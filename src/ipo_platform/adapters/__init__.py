@@ -14,7 +14,9 @@ from ipo_platform.adapters.base import (
     TokenBucketRateLimiter,
 )
 from ipo_platform.adapters.bse_adapter import BSEAdapter
+from ipo_platform.adapters.financials_adapter import FinancialsBridgeAdapter
 from ipo_platform.adapters.gmp_adapter import GMPAdapter
+from ipo_platform.adapters.live_market_client import LiveMarketClient, default_live_market_client
 from ipo_platform.adapters.nse_adapter import NSEAdapter
 
 __all__ = [
@@ -29,4 +31,7 @@ __all__ = [
     "NSEAdapter",
     "BSEAdapter",
     "GMPAdapter",
+    "FinancialsBridgeAdapter",
+    "LiveMarketClient",
+    "default_live_market_client",
 ]

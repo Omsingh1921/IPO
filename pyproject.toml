@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipo-platform"
+version = "1.0.0"
+description = "Indian IPO Research & Data Analysis Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "sqlalchemy>=2.0.25",
+    "alembic>=1.13.1",
+    "pymysql>=1.1.0",
+    "cryptography>=42.0.0",
+    "redis>=5.0.1",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "pydantic>=2.5.0",
+    "pyjwt>=2.8.0",
+    "requests>=2.31.0"
+]
+
+[project.scripts]
+ipo-platform = "ipo_platform.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

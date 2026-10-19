@@ -77,6 +77,7 @@ class IPOStatus:
     close_date: str
     listing_date: str
     listing_status: ListingStatusEnum
+    allotment_date: Optional[str] = None
 
 
 @dataclass
@@ -226,6 +227,9 @@ class GMPData:
     implied_price: float
     source: str
     source_type: SourceTypeEnum = SourceTypeEnum.UNOFFICIAL_GMP
+    allotment_date: Optional[str] = None
+    listing_date: Optional[str] = None
+    subscription_multiple: Optional[float] = None
 
 
 @dataclass

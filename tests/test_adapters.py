@@ -324,13 +324,17 @@ class TestAdaptersAndSync(unittest.TestCase):
         self.assertEqual(summary_live.gmp_quotes_recorded, 1)
 
     def test_offline_deterministic_fallback(self):
-        # Without http_client, offline fallback generates valid deterministic records
-        adapter = NSEAdapter()
+        # Without http_client and live=False, strictly zero hardcoded data is returned
+        adapter = NSEAdapter(live=False)
         items = adapter.fetch(limit=1)
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["symbol"], "TECHDYN")
-        self.assertTrue(adapter.validate(items[0]))
-        record = adapter.transform(items[0])
+        self.assertEqual(len(items), 0)
+
+        # When http_client is supplied via dependency injection, it parses correctly
+        mock_adapter = NSEAdapter(http_client=MagicMock(return_value=self.mock_nse_payload))
+        mock_items = mock_adapter.fetch(limit=1)
+        self.assertEqual(len(mock_items), 1)
+        self.assertTrue(mock_adapter.validate(mock_items[0]))
+        record = mock_adapter.transform(mock_items[0])
         self.assertIsInstance(record, MasterIPORecord)
 
 

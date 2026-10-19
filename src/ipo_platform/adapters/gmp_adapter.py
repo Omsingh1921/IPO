@@ -23,13 +23,14 @@ class GMPAdapter(BaseSourceAdapter):
 
     def __init__(
         self,
-        base_url: str = "https://api.ipo-gmp-tracker.com/quotes",
+        base_url: str = "https://www.investorgain.com/report/ipo-gmp-live/331/",
         timeout_seconds: float = 10.0,
         requests_per_second: float = 2.0,
         max_retries: int = 3,
         backoff_factor: float = 2.0,
         circuit_breaker: Optional[CircuitBreaker] = None,
         http_client: Optional[Callable[..., Any]] = None,
+        live: bool = True,
     ) -> None:
         super().__init__(
             source_name="GMP",
@@ -41,6 +42,7 @@ class GMPAdapter(BaseSourceAdapter):
             circuit_breaker=circuit_breaker,
         )
         self.http_client = http_client
+        self.live = live
 
     def health_check(self) -> bool:
         """Verifies upstream API connectivity or adapter readiness."""
@@ -58,23 +60,23 @@ class GMPAdapter(BaseSourceAdapter):
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """
-        Retrieves raw GMP quote snapshots from upstream API or offline deterministic provider.
+        Retrieves real-time GMP quotes via live market scraper or offline test fixture.
+        Zero hardcoded dataset in source code.
         """
         if self.http_client:
             return self.http_client(self.base_url, from_date=from_date, to_date=to_date, limit=limit)
 
-        year = date.today().year
-        today_str = date.today().isoformat()
-        return [
-            {
-                "ipo_id": f"NSE-TECHDYN-{year}",
-                "gmp_value": 85.0,
-                "reference_price": 340.0,
-                "date": today_str,
-                "time": "11:30:00",
-                "source": "Chittorgarh",
-            }
-        ][:limit]
+        import os
+        is_live = self.live if self.live is not None else (os.environ.get("IPO_LIVE_SCRAPING", "true").lower() in ("true", "1"))
+        if is_live:
+            try:
+                from ipo_platform.adapters.live_market_client import default_live_market_client
+                return default_live_market_client.fetch_gmp_live(url=self.base_url, limit=limit)
+            except Exception as err:
+                logger.warning("Live GMP scraping encountered an error: %s", err)
+                raise
+
+        return []
 
     def validate_gmp_sanity(self, gmp_value: float, reference_price: float) -> Tuple[bool, str]:
         """
@@ -142,6 +144,9 @@ class GMPAdapter(BaseSourceAdapter):
             reference_price=ref_price,
             implied_price=implied_price,
             source=raw_item.get("source", self.source_name),
+            allotment_date=raw_item.get("allotment_date"),
+            listing_date=raw_item.get("listing_date"),
+            subscription_multiple=raw_item.get("subscription"),
         )
 
         return (ipo_id, gmp_data)

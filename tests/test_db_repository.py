@@ -152,6 +152,33 @@ class TestDBRepository(unittest.TestCase):
             fetched = IPOReadRepository.get_by_id(session, "TEST-MB-2026-REPO")
             self.assertIsNone(fetched)
 
+    def test_save_master_record_deduplication(self):
+        record = JSONIngestor.from_dict(self.sample_json)
+        with get_db_session(self.engine) as session:
+            IPOWriteRepository.save_master_record(session, record)
+
+        # Attempt to save a duplicate record with a different ipo_id and variant of company name
+        duplicate_json = dict(self.sample_json)
+        duplicate_json["ipo_entity"] = {
+            "ipo_id": "BSE-9999-2026",
+            "company_name": "Repo Solutions Private Limited",
+            "company_legal_name": "Repo Solutions Private Limited",
+            "ticker_symbol": "9999",
+            "isin": "INE99990101",
+            "segment": "Mainboard",
+            "sector": "Software Services",
+            "industry": "Enterprise Software",
+        }
+        dup_record = JSONIngestor.from_dict(duplicate_json)
+        with get_db_session(self.engine) as session:
+            saved = IPOWriteRepository.save_master_record(session, dup_record)
+            self.assertEqual(saved.ipo_entity.ipo_id, "TEST-MB-2026-REPO")
+
+        # Verify only 1 record exists in the database
+        with get_db_session(self.engine) as session:
+            all_records = IPOReadRepository.list_all(session, skip=0, limit=10)
+            self.assertEqual(len(all_records), 1)
+
     def test_gmp_snapshot_persistence(self):
         gmp_data = GMPData(
             gmp_value=50.0,

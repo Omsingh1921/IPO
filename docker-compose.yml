@@ -1,6 +1,11 @@
 # ==============================================================================
 # Docker Compose: Production & Staging Multi-Service Stack
-# Services: ipo-platform (Application), mysql (Relational DB), redis (Cache/Queue)
+# Services:
+#   - mysql: Relational Primary System of Record with Binlog CDC enabled
+#   - redis: Distributed cache, distributed lock engine, and rate limiting
+#   - kafka: Apache Kafka (KRaft mode, no ZooKeeper) message broker
+#   - kafka-connect: Debezium MySQL CDC Source Connector runner
+#   - ipo-platform: Core Application (FastAPI REST API, Dashboard, Scheduler)
 # ==============================================================================
 
 version: "3.8"
@@ -19,10 +24,16 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./scripts/init-cdc-user.sql:/docker-entrypoint-initdb.d/init-cdc-user.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-authentication-plugin=mysql_native_password
+      - --server-id=101
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --binlog-expire-logs-seconds=604800
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-ipo_root_password_2026}"]
       interval: 10s
@@ -46,6 +57,74 @@ services:
     networks:
       - ipo-network
 
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: ipo-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:29092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: '4L62EnnTQNytYTdbZZ0PAw'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ipo-network
+
+  kafka-connect:
+    image: debezium/connect:2.5.4.Final
+    container_name: ipo-debezium-connect
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: ipo-connect-cluster
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    volumes:
+      - ./config/debezium-mysql-connector.json:/kafka/config/debezium-mysql-connector.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - ipo-network
+
   ipo-platform:
     build:
       context: .
@@ -60,6 +139,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://ipo_user:ipo_secure_password_2026@mysql:3306/ipo_db?charset=utf8mb4}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REPORTS_DIR: /app/reports/daily
       TZ: Asia/Kolkata
@@ -75,10 +155,12 @@ services:
     networks:
       - ipo-network
     entrypoint: ["/app/scripts/wait-for-db.sh"]
-    command: ["/app/scripts/start.sh", "python", "-m", "ipo_platform.cli", "--help"]
+    command: ["/app/scripts/start.sh", "uvicorn", "ipo_platform.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 volumes:
   mysql_data:
+    driver: local
+  kafka_data:
     driver: local
 
 networks:

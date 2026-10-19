@@ -36,13 +36,13 @@ class EmailNotifier(BaseNotifier):
         """
         Initializes EmailNotifier with injected or environment SMTP parameters.
         """
-        self.smtp_host = smtp_host or os.getenv("SMTP_HOST")
-        env_port = os.getenv("SMTP_PORT")
+        self.smtp_host = smtp_host or os.getenv("SMTP_HOST") or os.getenv("MAIL_HOST")
+        env_port = os.getenv("SMTP_PORT") or os.getenv("MAIL_PORT")
         self.smtp_port = smtp_port or (int(env_port) if env_port else 587)
-        self.username = username or os.getenv("SMTP_USERNAME")
-        self.password = password or os.getenv("SMTP_PASSWORD")
-        self.from_addr = from_addr or os.getenv("EMAIL_FROM")
-        self.to_addr = to_addr or os.getenv("EMAIL_TO")
+        self.username = username or os.getenv("SMTP_USERNAME") or os.getenv("SMTP_USER") or os.getenv("MAIL_USERNAME")
+        self.password = password or os.getenv("SMTP_PASSWORD") or os.getenv("MAIL_PASSWORD")
+        self.from_addr = from_addr or os.getenv("EMAIL_FROM") or self.username
+        self.to_addr = to_addr or os.getenv("EMAIL_TO") or os.getenv("NOTIFICATION_EMAIL_TO") or self.username
         self.use_tls = use_tls
 
     @property

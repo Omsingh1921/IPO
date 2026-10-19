@@ -16,3 +16,6 @@ pydantic>=2.5.0
 
 # Security & Authentication (Phase 10 - Stage 5)
 pyjwt>=2.8.0
+
+# Streaming & Change Data Capture
+kafka-python-ng>=2.2.2

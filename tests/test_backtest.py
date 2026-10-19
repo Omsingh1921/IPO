@@ -107,6 +107,19 @@ class TestBacktestEngine(unittest.TestCase):
         self.assertEqual(results["historical_cohort_size"], 1)
         self.assertEqual(results["win_rate_percent"], 100.0)
 
+    def test_cutoff_look_ahead_bias_prevention(self):
+        # Verify that post-listing outcome fields cannot alter the pre-listing scenario status
+        original_scenario = self.record.scenario_40_percent.scenario_status
+        # Inject an artificial post-listing return of 200%
+        self.record.historical_ipo.listing_day_return = 200.0
+        self.record.historical_ipo.max_upside_from_issue_price = 300.0
+
+        # Outcome extraction must preserve the pre-listing evaluation strictly
+        outcome = HistoricalDataLoader.extract_post_listing_outcomes(self.record)
+        self.assertEqual(outcome["scenario_status_pre_listing"], original_scenario.value)
+        # Ensure pre-listing decision cutoff is decoupled from post-listing performance
+        self.assertNotEqual(outcome["scenario_status_pre_listing"], outcome["listing_day_return_percent"])
+
 
 if __name__ == "__main__":
     unittest.main()

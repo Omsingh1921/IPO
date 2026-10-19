@@ -17,6 +17,7 @@ from ipo_platform.db.session import get_db_session
 from ipo_platform.engine.scenario_evaluator import Scenario40PercentEvaluator
 from ipo_platform.models.enums import IPOStatusEnum
 from ipo_platform.models.schema import GMPData, MasterIPORecord
+from ipo_platform.security.hardening import safe_write_file, validate_output_directory
 
 
 class DailyBriefingService:
@@ -89,10 +90,11 @@ class DailyBriefingService:
                     listing_today.append(rec)
 
             # Build Markdown Report
+            exec_time = os.getenv("BRIEFING_EXECUTION_TIME", "12:01")
             report_lines: List[str] = []
             report_lines.append(f"# Daily IPO Intelligence Briefing — {current_date_str}")
             report_lines.append("")
-            report_lines.append(f"**Generated Date:** {current_date_str} 09:00:00 IST")
+            report_lines.append(f"**Generated Date:** {current_date_str} {exec_time}:00 IST")
             report_lines.append(f"**Total Active Offerings Tracked:** {len(active_ipos)}")
             report_lines.append(f"**Offerings Closing Today:** {len(closing_today)}")
             report_lines.append(f"**Offerings Listing Today:** {len(listing_today)}")
@@ -176,11 +178,15 @@ class DailyBriefingService:
 
             report_content = "\n".join(report_lines)
 
-            # Write report to disk
+            # Write report to disk using atomic and path-safe writer
             report_filename = f"briefing_{current_date_str}.md"
             file_path = os.path.join(self.reports_dir, report_filename)
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(report_content)
+            safe_write_file(
+                target_path=file_path,
+                content=report_content,
+                base_dir=self.reports_dir,
+                overwrite=True,
+            )
 
             if notify and self.notification_service:
                 self.notification_service.send_daily_briefing(

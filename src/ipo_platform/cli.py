@@ -284,6 +284,77 @@ def run_serve(args: argparse.Namespace) -> int:
         return 1
 
 
+def run_parse_rhp(args: argparse.Namespace) -> int:
+    """
+    Executes 'parse-rhp' command to parse unstructured RHP/DRHP filing text into a MasterIPORecord.
+    """
+    if not args.file or not os.path.isfile(args.file):
+        sys.stderr.write(f"Error: Specified prospectus file does not exist: {args.file}\n")
+        return 2
+
+    try:
+        with open(args.file, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        from ipo_platform.analysis.rhp_parser import RHPProspectusParser
+        record = RHPProspectusParser.parse_prospectus_text(
+            content, source_id=args.source_id or "SRC-SEBI-RHP-CLI"
+        )
+
+        pb_low = record.issue_structure.price_band_low.value if hasattr(record.issue_structure.price_band_low, "value") else record.issue_structure.price_band_low
+        pb_high = record.issue_structure.price_band_high.value if hasattr(record.issue_structure.price_band_high, "value") else record.issue_structure.price_band_high
+        sz = record.issue_structure.issue_size.value if hasattr(record.issue_structure.issue_size, "value") else record.issue_structure.issue_size
+        fresh = record.issue_structure.fresh_issue_amount.value if hasattr(record.issue_structure.fresh_issue_amount, "value") else record.issue_structure.fresh_issue_amount
+        ofs = record.issue_structure.ofs_amount.value if hasattr(record.issue_structure.ofs_amount, "value") else record.issue_structure.ofs_amount
+
+        fin = record.financial_data[0] if record.financial_data else None
+        rev = fin.revenue.value if fin and fin.revenue and hasattr(fin.revenue, "value") else 0.0
+        pat = fin.PAT.value if fin and fin.PAT and hasattr(fin.PAT, "value") else 0.0
+        roe = fin.ROE.value if fin and fin.ROE and hasattr(fin.ROE, "value") else 0.0
+
+        sys.stdout.write(f"=== Extracted Prospectus: {record.ipo_entity.company_name} ===\n")
+        sys.stdout.write(f"IPO ID: {record.ipo_entity.ipo_id} | Symbol: {record.ipo_entity.ticker_symbol}\n")
+        sys.stdout.write(f"Price Band: Rs. {pb_low:.0f} - Rs. {pb_high:.0f}\n")
+        sys.stdout.write(f"Issue Size: Rs. {sz:.2f} Cr (Fresh: Rs. {fresh:.2f} Cr, OFS: Rs. {ofs:.2f} Cr)\n")
+        sys.stdout.write(f"Financials: Revenue Rs. {rev:.2f} Cr | PAT Rs. {pat:.2f} Cr | ROE {roe:.2f}%\n")
+        sys.stdout.write(f"Objects of Issue Extracted: {len(record.objects_of_issue)}\n")
+        sys.stdout.write(f"Key Risk Factors Identified: {len(record.risk_data)}\n")
+
+        if args.ingest:
+            engine = get_engine(args.db_url)
+            ingestion_service = IPOIngestionService(engine)
+            ingestion_service.ingest_record(record)
+            sys.stdout.write(f"Successfully persisted extracted record into database: {record.ipo_entity.ipo_id}\n")
+
+        return 0
+    except Exception as err:
+        sys.stderr.write(f"RHP Parser Error: {err}\n")
+        return 1
+
+
+def run_consume_cdc(args: argparse.Namespace) -> int:
+    """
+    Executes 'consume-cdc' command to run the streaming Kafka CDC consumer worker.
+    """
+    try:
+        from ipo_platform.streaming.consumer import KafkaCDCWorker
+        topics = [t.strip() for t in args.topics.split(",")] if args.topics else None
+        worker = KafkaCDCWorker(
+            bootstrap_servers=args.bootstrap_servers,
+            group_id=args.group_id,
+            topics=topics,
+        )
+        sys.stdout.write(
+            f"Starting Kafka CDC Worker on {worker.bootstrap_servers} (group: {worker.group_id}, topics: {worker.topics})...\n"
+        )
+        worker.run_loop(max_iterations=args.max_iterations)
+        sys.stdout.write(f"CDC Worker finished. Processed {worker.consumer.processed_count} events.\n")
+        return 0
+    except Exception as err:
+        sys.stderr.write(f"CDC Worker Error: {err}\n")
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """
     Constructs the CLI ArgumentParser hierarchy.
@@ -413,6 +484,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable auto-reload on code modifications.",
     )
 
+    # Command: parse-rhp
+    rhp_parser_cmd = subparsers.add_parser("parse-rhp", help="Parse unstructured SEBI DRHP/RHP prospectus filings.")
+    rhp_parser_cmd.add_argument("--file", "-f", required=True, help="Path to prospectus text or markdown file.")
+    rhp_parser_cmd.add_argument("--source-id", default="SRC-SEBI-RHP-CLI", help="Custom provenance source ID.")
+    rhp_parser_cmd.add_argument("--ingest", action="store_true", help="Directly persist the extracted record to MySQL.")
+
+    # Command: consume-cdc
+    cdc_parser_cmd = subparsers.add_parser("consume-cdc", help="Run background streaming Kafka CDC worker daemon.")
+    cdc_parser_cmd.add_argument("--bootstrap-servers", default="localhost:9092", help="Kafka broker bootstrap servers.")
+    cdc_parser_cmd.add_argument("--group-id", default="ipo-platform-cdc-worker", help="Kafka consumer group ID.")
+    cdc_parser_cmd.add_argument("--topics", default=None, help="Comma-separated topics to subscribe to.")
+    cdc_parser_cmd.add_argument("--max-iterations", type=int, default=None, help="Stop after N poll iterations (for test/batch runs).")
+
     return parser
 
 
@@ -435,6 +519,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "backtest": run_backtest,
         "sync-sources": run_sync_sources,
         "serve": run_serve,
+        "parse-rhp": run_parse_rhp,
+        "consume-cdc": run_consume_cdc,
     }
 
     handler = command_handlers.get(args.subcommand)

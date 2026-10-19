@@ -103,6 +103,22 @@ class JobExecutionHistoryRepository:
         return record
 
     @staticmethod
+    def record_skipped(
+        session: Session,
+        job_name: str,
+        execution_date: date,
+        reason: str,
+    ) -> Optional[ScheduledJobExecutionModel]:
+        """Marks execution state as SKIPPED with reason details."""
+        record = JobExecutionHistoryRepository.get_execution(session, job_name, execution_date)
+        if record:
+            record.completed_at = datetime.utcnow()
+            record.execution_status = JobExecutionStatus.SKIPPED.value
+            record.error_message = str(reason)[:1000]
+            session.flush()
+        return record
+
+    @staticmethod
     def is_already_completed(
         session: Session,
         job_name: str,
@@ -111,3 +127,16 @@ class JobExecutionHistoryRepository:
         """Returns True if the job has already completed successfully for the given date."""
         record = JobExecutionHistoryRepository.get_execution(session, job_name, execution_date)
         return record is not None and record.execution_status == JobExecutionStatus.COMPLETED.value
+
+    @staticmethod
+    def get_recent_executions(
+        session: Session,
+        limit: int = 20,
+    ) -> List[ScheduledJobExecutionModel]:
+        """Retrieves recent job execution audit records ordered chronologically descending."""
+        stmt = (
+            select(ScheduledJobExecutionModel)
+            .order_by(ScheduledJobExecutionModel.started_at.desc())
+            .limit(limit)
+        )
+        return list(session.execute(stmt).scalars().all())

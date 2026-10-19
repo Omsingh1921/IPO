@@ -29,6 +29,11 @@ class RecommendationResult:
     risks: List[str] = field(default_factory=list)
     veto_applied: Optional[str] = None
     summary_rationale: str = ""
+    disclaimer: str = (
+        "NON-ADVISORY RESEARCH NOTICE: Generated solely for quantitative and academic research "
+        "under SEBI (Research Analysts) Regulations, 2014. Does not constitute investment advice "
+        "or solicitation to buy, sell, or apply for securities."
+    )
     evaluation_timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -47,5 +52,7 @@ class RecommendationResult:
             "risks": self.risks,
             "veto_applied": self.veto_applied,
             "summary_rationale": self.summary_rationale,
+            "disclaimer": self.disclaimer,
             "evaluation_timestamp": self.evaluation_timestamp,
         }
+

@@ -5,6 +5,7 @@ Enforces Optimistic Concurrency Control (version_id) and atomic transaction boun
 """
 
 from datetime import datetime
+import re
 from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy import select
@@ -210,6 +211,28 @@ class IPOReadRepository:
 # -----------------------------------------------------------------------------
 
 
+def _normalize_name_for_dedup(name: str) -> str:
+    """
+    Normalizes company names for deduplication across exchanges.
+    Removes corporate legal suffixes, punctuation, and whitespace.
+    """
+    if not name:
+        return ""
+    clean = name.lower()
+    clean = re.sub(r"[^\w\s]", " ", clean)
+    stop_words = {
+        "limited", "ltd", "pvt", "private", "inc", "corp", "corporation",
+        "llp", "company", "co", "india", "technologies", "technology",
+        "services", "service", "manufacturing", "businesses", "business",
+        "transmissions", "transmission", "investments", "investment",
+        "solutions", "solution", "holdings", "holding", "enterprises", "enterprise",
+    }
+    tokens = [w for w in clean.split() if w not in stop_words and len(w) > 1]
+    if not tokens:
+        tokens = [w for w in clean.split() if len(w) > 1]
+    return "".join(tokens)
+
+
 class IPOWriteRepository:
     """Transactional write repository supporting OCC versioning and soft deletion."""
 
@@ -217,6 +240,8 @@ class IPOWriteRepository:
     def save_master_record(session: Session, record: MasterIPORecord) -> MasterIPORecord:
         """
         Atomically persists or updates a MasterIPORecord aggregate.
+        Enforces strict multi-layer deduplication (ID, ISIN, Ticker, and Normalized Company Name)
+        to prevent duplicate company entries across NSE, BSE, and upstream feeds.
 
         Raises:
             DuplicateIPOSlugError: If ipo_id or unique ISIN already exists on insert.
@@ -224,45 +249,127 @@ class IPOWriteRepository:
             DataIntegrityError: If mapping or constraint fails.
         """
         ipo_id = record.ipo_entity.ipo_id
+        company_name = record.ipo_entity.company_name or ""
+        ticker_symbol = record.ipo_entity.ticker_symbol or ""
+        isin = record.ipo_entity.isin or ""
         models_dict = MasterIPOMapper.record_to_models(record)
 
         try:
+            # Multi-layer deduplication matching:
+            # 1. Exact match by ipo_id
             existing_master = session.execute(
                 select(IPOMasterModel).where(IPOMasterModel.ipo_id == ipo_id)
             ).scalars().first()
 
+            # 2. Match by ISIN if genuine (12 chars, not dummy INEBSE/placeholder)
+            if not existing_master and isin and len(isin) == 12 and not isin.startswith("INEBSE"):
+                existing_master = session.execute(
+                    select(IPOMasterModel).where(
+                        IPOMasterModel.isin == isin,
+                        IPOMasterModel.is_active == True,
+                    )
+                ).scalars().first()
+
+            # 3. Match by non-numeric ticker symbol
+            if not existing_master and ticker_symbol and not ticker_symbol.isdigit() and ticker_symbol not in ("BSE_OFFERING", "NSE_OFFERING"):
+                existing_master = session.execute(
+                    select(IPOMasterModel).where(
+                        IPOMasterModel.ticker_symbol == ticker_symbol,
+                        IPOMasterModel.is_active == True,
+                    )
+                ).scalars().first()
+
+            # 4. Match by normalized company name across active offerings
+            if not existing_master:
+                target_norm = _normalize_name_for_dedup(company_name)
+                if target_norm and len(target_norm) >= 4:
+                    active_masters = session.execute(
+                        select(IPOMasterModel).where(IPOMasterModel.is_active == True)
+                    ).scalars().all()
+                    for cand in active_masters:
+                        cand_norm = _normalize_name_for_dedup(cand.company_name)
+                        if not cand_norm:
+                            continue
+                        if target_norm == cand_norm:
+                            existing_master = cand
+                            break
+                        if len(target_norm) >= 5 and len(cand_norm) >= 5:
+                            if target_norm in cand_norm or cand_norm in target_norm:
+                                existing_master = cand
+                                break
+
             if existing_master:
-                # Update existing master fields
+                is_same_id = (existing_master.ipo_id == ipo_id)
+                is_exchange_variant = (
+                    (ipo_id.startswith("BSE-") and (existing_master.ipo_id.startswith("NSE-") or existing_master.ipo_id.startswith("TEST-")))
+                    or (ipo_id.startswith("NSE-") and (existing_master.ipo_id.startswith("BSE-") or existing_master.ipo_id.startswith("TEST-")))
+                )
+
+                if not is_same_id and not is_exchange_variant:
+                    raise DuplicateIPOSlugError(
+                        f"Duplicate IPO record detected: offering '{company_name}' (ISIN: {isin}) "
+                        f"already exists as '{existing_master.ipo_id}'."
+                    )
+
+                # Update existing master fields in-place without duplicating records
                 new_master: IPOMasterModel = models_dict["master"]
-                existing_master.company_name = new_master.company_name
-                existing_master.company_legal_name = new_master.company_legal_name
-                existing_master.ticker_symbol = new_master.ticker_symbol
-                existing_master.isin = new_master.isin
-                existing_master.segment = new_master.segment
-                existing_master.sector = new_master.sector
-                existing_master.industry = new_master.industry
+                target_ipo_id = existing_master.ipo_id
+
+                if not existing_master.company_name or len(new_master.company_name) > len(existing_master.company_name):
+                    existing_master.company_name = new_master.company_name
+                if new_master.company_legal_name:
+                    existing_master.company_legal_name = new_master.company_legal_name
+
+                # Preserve clean alphabetic ticker_symbol
+                if new_master.ticker_symbol and not new_master.ticker_symbol.isdigit():
+                    existing_master.ticker_symbol = new_master.ticker_symbol
+
+                # Update genuine ISIN
+                if new_master.isin and not new_master.isin.startswith("INEBSE"):
+                    existing_master.isin = new_master.isin
+
+                if new_master.segment:
+                    existing_master.segment = new_master.segment
+                if new_master.sector:
+                    existing_master.sector = new_master.sector
+                if new_master.industry:
+                    existing_master.industry = new_master.industry
                 existing_master.status = new_master.status
                 existing_master.research_date = new_master.research_date
                 existing_master.research_time = new_master.research_time
                 existing_master.data_cutoff = new_master.data_cutoff
                 existing_master.open_date = new_master.open_date
                 existing_master.close_date = new_master.close_date
-                existing_master.listing_date = new_master.listing_date
+                if hasattr(new_master, "allotment_date") and new_master.allotment_date:
+                    existing_master.allotment_date = new_master.allotment_date
+                if new_master.listing_date:
+                    existing_master.listing_date = new_master.listing_date
                 existing_master.listing_status = new_master.listing_status
-                existing_master.issue_size = new_master.issue_size
-                existing_master.fresh_issue_amount = new_master.fresh_issue_amount
-                existing_master.ofs_amount = new_master.ofs_amount
-                existing_master.fresh_issue_percentage = new_master.fresh_issue_percentage
-                existing_master.ofs_percentage = new_master.ofs_percentage
-                existing_master.face_value = new_master.face_value
-                existing_master.price_band_low = new_master.price_band_low
-                existing_master.price_band_high = new_master.price_band_high
-                existing_master.issue_price = new_master.issue_price
-                existing_master.lot_size = new_master.lot_size
-                existing_master.minimum_investment = new_master.minimum_investment
-                existing_master.employee_reservation = new_master.employee_reservation
-                existing_master.shareholder_reservation = new_master.shareholder_reservation
-                existing_master.other_reservation = new_master.other_reservation
+                if new_master.issue_size and float(new_master.issue_size) > 0:
+                    existing_master.issue_size = new_master.issue_size
+                if new_master.fresh_issue_amount:
+                    existing_master.fresh_issue_amount = new_master.fresh_issue_amount
+                if new_master.ofs_amount:
+                    existing_master.ofs_amount = new_master.ofs_amount
+                if new_master.fresh_issue_percentage:
+                    existing_master.fresh_issue_percentage = new_master.fresh_issue_percentage
+                if new_master.ofs_percentage:
+                    existing_master.ofs_percentage = new_master.ofs_percentage
+                if new_master.face_value:
+                    existing_master.face_value = new_master.face_value
+                if new_master.price_band_high and float(new_master.price_band_high) > 0:
+                    existing_master.price_band_low = new_master.price_band_low
+                    existing_master.price_band_high = new_master.price_band_high
+                    existing_master.issue_price = new_master.issue_price
+                if new_master.lot_size and int(new_master.lot_size) > 0:
+                    existing_master.lot_size = new_master.lot_size
+                    existing_master.minimum_investment = new_master.minimum_investment
+                if new_master.employee_reservation:
+                    existing_master.employee_reservation = new_master.employee_reservation
+                if new_master.shareholder_reservation:
+                    existing_master.shareholder_reservation = new_master.shareholder_reservation
+                if new_master.other_reservation:
+                    existing_master.other_reservation = new_master.other_reservation
 
                 session.flush()
             else:
@@ -299,8 +406,8 @@ class IPOWriteRepository:
                     session.add(pe)
 
                 session.flush()
-
-            return IPOReadRepository.get_by_id(session, ipo_id) or record
+            final_ipo_id = existing_master.ipo_id if existing_master else ipo_id
+            return IPOReadRepository.get_by_id(session, final_ipo_id) or record
 
         except StaleDataError as err:
             raise OptimisticLockError(f"Optimistic lock collision for IPO '{ipo_id}': {err}") from err
@@ -376,6 +483,48 @@ class IPOWriteRepository:
         session.flush()
         return True
 
+    @staticmethod
+    def update_dates(
+        session: Session,
+        ipo_id: str,
+        allotment_date: Optional[str] = None,
+        listing_date: Optional[str] = None,
+    ) -> bool:
+        """
+        Updates allotment_date and/or listing_date for an active IPO offering.
+        """
+        master = session.execute(
+            select(IPOMasterModel).where(
+                IPOMasterModel.ipo_id == ipo_id,
+                IPOMasterModel.is_active == True,
+            )
+        ).scalars().first()
+        if not master:
+            return False
+
+        updated = False
+        if allotment_date:
+            try:
+                clean_ad = str(allotment_date).split("T")[0].strip()
+                if len(clean_ad) == 10 and clean_ad[4] == "-" and clean_ad[7] == "-":
+                    master.allotment_date = datetime.strptime(clean_ad, "%Y-%m-%d").date()
+                    updated = True
+            except Exception:
+                pass
+        if listing_date:
+            try:
+                clean_ld = str(listing_date).split("T")[0].strip()
+                if len(clean_ld) == 10 and clean_ld[4] == "-" and clean_ld[7] == "-":
+                    master.listing_date = datetime.strptime(clean_ld, "%Y-%m-%d").date()
+                    updated = True
+            except Exception:
+                pass
+
+        if updated:
+            session.flush()
+        return updated
+
+
 
 # -----------------------------------------------------------------------------
 # 3. GMP Repository
@@ -387,11 +536,27 @@ class GMPRepository:
 
     @staticmethod
     def save_gmp_snapshot(session: Session, ipo_id: str, gmp_data: GMPData) -> GMPLogModel:
-        """Persists a new GMP quote snapshot."""
+        """Persists a new GMP quote snapshot or updates existing quote for today."""
         stype = gmp_data.source_type.value if isinstance(gmp_data.source_type, SourceTypeEnum) else str(gmp_data.source_type)
+        today_val = datetime.now().date()
+        existing = session.execute(
+            select(GMPLogModel).where(
+                (GMPLogModel.ipo_id == ipo_id) & (GMPLogModel.gmp_date == today_val)
+            ).order_by(GMPLogModel.gmp_time.desc())
+        ).scalars().first()
+        if existing:
+            existing.gmp_value = gmp_data.gmp_value
+            existing.gmp_percentage = gmp_data.gmp_percentage
+            existing.reference_price = gmp_data.reference_price
+            existing.implied_price = gmp_data.implied_price
+            existing.source_type = stype
+            existing.retrieval_timestamp = datetime.now()
+            session.flush()
+            return existing
+
         gmp_model = GMPLogModel(
             ipo_id=ipo_id,
-            gmp_date=datetime.now().date(),
+            gmp_date=today_val,
             gmp_time=datetime.now().time(),
             gmp_value=gmp_data.gmp_value,
             gmp_percentage=gmp_data.gmp_percentage,

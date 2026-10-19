@@ -2,7 +2,7 @@
 
 **Schema Version:** `1.0`  
 **Status:** Approved Phase 1 Schema Design  
-**Target Systems:** Phase 2 (Google Sheets IPO Database), Phase 3 (Python Data Analysis Engine), Phase 4 (Historical Backtesting Engine), Phase 5 (40% Target Performance Measurement), Phase 6 (Automated Daily Briefing), Later (MySQL / Kafka / Elasticsearch).
+**Target Systems:** Phase 2 (Google Sheets IPO Database), Phase 3 (Python Data Analysis Engine), Phase 4 (Historical Backtesting Engine), Phase 5 (40% Target Performance Measurement), Phase 6 (Automated Daily Briefing), Phase 7 (MySQL Primary System of Record), Phase 8 (Apache Kafka & Debezium CDC). (Note: Elasticsearch and Kibana are out of scope).
 
 ---
 

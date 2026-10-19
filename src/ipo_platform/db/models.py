@@ -68,6 +68,7 @@ class IPOMasterModel(Base):
     data_cutoff: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
     open_date: Mapped[Date] = mapped_column(Date, nullable=False)
     close_date: Mapped[Date] = mapped_column(Date, nullable=False)
+    allotment_date: Mapped[Optional[Date]] = mapped_column(Date, nullable=True)
     listing_date: Mapped[Optional[Date]] = mapped_column(Date, nullable=True)
     listing_status: Mapped[str] = mapped_column(String(64), nullable=False, default="Pre-Listing")
     issue_size: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
@@ -528,5 +529,70 @@ class ScheduledJobExecutionModel(Base):
         UniqueConstraint("job_name", "execution_date", name="uq_job_name_execution_date"),
         Index("idx_job_exec_status", "job_name", "execution_status"),
         Index("idx_exec_date", "execution_date"),
+    )
+
+
+class WishlistModel(Base):
+    """
+    User Wishlist Entity (Table: user_wishlist).
+    Persists bookmarked and tracked IPO offerings per user in the relational database.
+    """
+
+    __tablename__ = "user_wishlist"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="default_user")
+    ipo_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("ipo_master.ipo_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+    )
+    company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "ipo_id", name="uq_user_ipo_wishlist"),
+        Index("idx_wishlist_user", "user_id"),
+        Index("idx_wishlist_ipo", "ipo_id"),
+    )
+
+
+class WishlistHistoryModel(Base):
+    """
+    User Wishlist Post-Listing History Entity (Table: user_wishlist_history).
+    Persists tracked wishlist IPOs after they list on stock exchanges,
+    recording their issue price, actual listing price, listing gain percentage,
+    and listing date for longitudinal track-record analysis.
+    """
+
+    __tablename__ = "user_wishlist_history"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="default_user")
+    ipo_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("ipo_master.ipo_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+    )
+    company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    segment: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    issue_price: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    listing_price: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    listing_gain_pct: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
+    listing_date: Mapped[Optional[Date]] = mapped_column(Date, nullable=True)
+    listing_day_close: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="Listed")
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    wishlist_added_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "ipo_id", name="uq_user_ipo_wishlist_hist"),
+        Index("idx_wishlist_hist_user", "user_id"),
+        Index("idx_wishlist_hist_ipo", "ipo_id"),
+        Index("idx_wishlist_hist_date", "listing_date"),
     )
 

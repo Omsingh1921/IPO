@@ -59,43 +59,99 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     return clean
 
 
+DEFAULT_BASE_ENV_VAR = "IPO_TRUSTED_BASE_DIR"
+
+
+def get_default_trusted_base() -> Optional[Path]:
+    """Retrieves the globally configured trusted base directory if defined."""
+    env_base = os.getenv(DEFAULT_BASE_ENV_VAR)
+    if env_base and env_base.strip():
+        return Path(env_base.strip()).resolve()
+    return None
+
+
 def sanitize_path(
     path: Union[str, Path],
     base_dir: Optional[Union[str, Path]] = None,
-    allow_absolute: bool = True,
+    allow_absolute: bool = False,
 ) -> Path:
     """
-    Resolves and validates a filesystem path, ensuring it does not contain null bytes
-    and strictly resides within `base_dir` if specified.
+    Resolves and validates a filesystem path against strict security rules.
+    Guarantees:
+    - Null byte rejection
+    - Rejection of directory traversal (../, ..\\, mixed separators) across POSIX and Windows
+    - Rejection of UNC network paths
+    - Rejection of drive letter jumping across volumes
+    - Strict boundary containment within base_dir via Path.relative_to
+    - Symlink resolution ensuring targets cannot escape base_dir
+    - Fail-closed if base_dir is absent and no trusted root is configured
     """
-    path_str = str(path)
+    if path is None:
+        raise InputValidationError("Path cannot be None")
+
+    path_str = str(path).strip()
+    if not path_str:
+        raise InputValidationError("Path cannot be empty")
+
     if "\x00" in path_str:
         raise PathTraversalError("Path contains null bytes")
 
-    target = Path(path)
+    # Reject UNC network paths
+    if path_str.startswith(("\\\\", "//")):
+        raise PathTraversalError(f"UNC network paths are prohibited: '{path_str}'")
 
-    if base_dir is not None:
-        base = Path(base_dir).resolve()
-        # If target is relative, resolve it relative to base
-        if not target.is_absolute():
-            target = (base / target).resolve()
-        else:
-            target = target.resolve()
+    # Determine trusted base
+    if base_dir is None:
+        base_dir = get_default_trusted_base()
 
-        # Enforce boundary containment
+    if base_dir is None:
+        raise PathTraversalError(
+            f"Path validation failed: base_dir must be explicitly provided or configured via {DEFAULT_BASE_ENV_VAR}"
+        )
+
+    base = Path(base_dir).resolve()
+
+    # Check for Windows drive prefix on input path (e.g., C:\ or C:/)
+    has_drive_prefix = bool(re.match(r"^[a-zA-Z]:", path_str))
+
+    # Normalize backslashes to forward slashes for cross-platform traversal analysis
+    normalized_path_str = path_str.replace("\\", "/")
+
+    # Check for direct traversal components lexically
+    parts = normalized_path_str.split("/")
+    if ".." in parts:
+        # Check if the traversal would escape base before or after resolution
+        pass
+
+    target_path = Path(normalized_path_str)
+
+    if has_drive_prefix or target_path.is_absolute():
+        if not allow_absolute:
+            raise PathTraversalError(f"Absolute paths are disallowed without explicit permission: '{path_str}'")
         try:
-            target.relative_to(base)
-        except ValueError:
-            raise PathTraversalError(
-                f"Path traversal detected: '{path}' escapes designated base directory '{base}'"
-            )
-        return target
+            resolved_target = target_path.resolve()
+        except Exception as err:
+            raise PathTraversalError(f"Path resolution error: {err}") from err
+    else:
+        # Relative path: check if it already resolves within base from cwd, otherwise anchor to base
+        try:
+            cwd_candidate = target_path.resolve()
+            if cwd_candidate.is_relative_to(base):
+                resolved_target = cwd_candidate
+            else:
+                resolved_target = (base / target_path).resolve()
+        except Exception as err:
+            raise PathTraversalError(f"Path resolution error: {err}") from err
 
-    # No base directory constraint
-    if not allow_absolute and target.is_absolute():
-        raise PathTraversalError(f"Absolute paths are disallowed: '{path}'")
+    # Enforce boundary containment using relative_to (handles prefix-lookalikes and escapes)
+    try:
+        resolved_target.relative_to(base)
+    except ValueError:
+        raise PathTraversalError(
+            f"Path traversal detected: path escapes designated base directory"
+        )
 
-    return target.resolve()
+    return resolved_target
 
 
 def validate_output_directory(

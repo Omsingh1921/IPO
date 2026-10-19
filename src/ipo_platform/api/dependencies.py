@@ -58,6 +58,23 @@ def get_query_service() -> IPOQueryService:
     return IPOQueryService(engine=get_db_engine())
 
 
+def get_ingestion_service():
+    """
+    Dependency returning an IPOIngestionService instance initialized with the DB engine.
+    """
+    from ipo_platform.services.ingestion_service import IPOIngestionService
+    return IPOIngestionService(engine=get_db_engine())
+
+
+def get_sync_service():
+    """
+    Dependency returning a SourceSyncService instance initialized with the DB engine.
+    """
+    from ipo_platform.services.sync_service import SourceSyncService
+    return SourceSyncService(engine=get_db_engine())
+
+
+
 def get_recommendation_engine() -> IPORecommendationEngine:
     """
     Dependency returning the IPORecommendationEngine singleton.

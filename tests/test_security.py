@@ -46,15 +46,62 @@ class TestSecurityHardening(unittest.TestCase):
             "..\\..\\windows\\system32",
             "reports/../../../secret_keys.env",
             "subdir/../../../../outside.txt",
+            "subdir/..\\../mixed/../../outside.txt",
+            "/etc/passwd",
+            "\\\\attacker-server\\share\\data.txt",
+            "//attacker-server/share/data.txt",
         ]
 
         for bad_path in traversal_attempts:
             with self.assertRaises(PathTraversalError):
                 sanitize_path(bad_path, base_dir=self.base_dir)
 
+    def test_sanitize_path_rejects_prefix_lookalike_directory(self):
+        # Prevent /base_dir-lookalike from bypassing prefix check
+        lookalike_path = str(self.base_dir) + "-evil" + os.sep + "payload.txt"
+        with self.assertRaises(PathTraversalError):
+            sanitize_path(lookalike_path, base_dir=self.base_dir, allow_absolute=True)
+
+    def test_sanitize_path_missing_base_dir_fails_closed(self):
+        # Without base_dir or IPO_TRUSTED_BASE_DIR, fails closed
+        old_env = os.environ.pop("IPO_TRUSTED_BASE_DIR", None)
+        try:
+            with self.assertRaises(PathTraversalError):
+                sanitize_path("some_file.txt", base_dir=None)
+        finally:
+            if old_env is not None:
+                os.environ["IPO_TRUSTED_BASE_DIR"] = old_env
+
+    def test_sanitize_path_configured_trusted_base_env(self):
+        os.environ["IPO_TRUSTED_BASE_DIR"] = str(self.base_dir)
+        try:
+            safe = sanitize_path("sub/report.md", base_dir=None)
+            self.assertTrue(safe.is_relative_to(self.base_dir))
+        finally:
+            del os.environ["IPO_TRUSTED_BASE_DIR"]
+
     def test_sanitize_path_rejects_null_bytes(self):
         with self.assertRaises(PathTraversalError):
             sanitize_path("valid_file.txt\x00.exe", base_dir=self.base_dir)
+
+    def test_sanitize_path_symlink_outside_base_rejected(self):
+        # Create external target
+        external_dir = tempfile.TemporaryDirectory()
+        try:
+            external_file = Path(external_dir.name) / "secret.txt"
+            external_file.write_text("classified", encoding="utf-8")
+
+            symlink_path = self.base_dir / "symlink_to_external"
+            try:
+                symlink_path.symlink_to(external_file)
+            except (OSError, NotImplementedError):
+                # Symlinks may require admin privileges on Windows; skip if OS forbids
+                return
+
+            with self.assertRaises(PathTraversalError):
+                sanitize_path(symlink_path, base_dir=self.base_dir)
+        finally:
+            external_dir.cleanup()
 
     def test_sanitize_filename(self):
         # Cleans disallowed characters and paths

@@ -6,8 +6,9 @@ and global exception handlers with zero-trust production hardening.
 
 from contextlib import asynccontextmanager
 import logging
+import os
 import time
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,11 +35,74 @@ _HTTP_REQUEST_LATENCY = default_registry.timer(
 )
 
 
+_scheduler: Optional[Any] = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manages application startup and graceful shutdown lifecycles."""
+    global _scheduler
     logger.info("Initializing Indian IPO Recommendation Platform API with Production Security...")
+
+    if os.getenv("SCHEDULER_ENABLED", "false").lower() == "true":
+        try:
+            from ipo_platform.jobs.scheduler import JobScheduler
+            from ipo_platform.jobs.daily_briefing_job import run_daily_briefing_job
+            from ipo_platform.db.session import get_engine
+
+            _scheduler = JobScheduler()
+            engine = get_engine()
+
+            # 1. Daily 12:01 PM Briefing Job
+            def _briefing_task() -> None:
+                run_daily_briefing_job(engine, notify_channels=["email"])
+
+            _scheduler.schedule_daily_job("daily_briefing", _briefing_task)
+            logger.info("Daily briefing scheduler background loop activated.")
+
+            # 2. Automated Recurring Live Market Sync (NSE, BSE, GMP)
+            if os.getenv("AUTO_SYNC_ENABLED", "true").lower() in ("true", "1", "yes"):
+                from ipo_platform.services.sync_service import SourceSyncService
+                sync_interval = float(os.getenv("LIVE_SYNC_INTERVAL_SECONDS", "300.0"))
+                sync_service = SourceSyncService(engine)
+
+                def _live_market_sync_task() -> None:
+                    try:
+                        logger.info("Background auto-sync: Fetching live subscription and quote updates (NSE/BSE/GMP)...")
+                        summary = sync_service.sync_all(limit=50, dry_run=False)
+                        logger.info(
+                            "Background auto-sync complete: %d records ingested/updated, %d GMP quotes recorded.",
+                            summary.master_records_ingested,
+                            summary.gmp_quotes_recorded,
+                        )
+                    except Exception as exc:
+                        logger.warning("Background live market auto-sync encountered an error: %s", exc)
+
+                _scheduler.schedule_interval_job(
+                    "live_market_sync",
+                    _live_market_sync_task,
+                    interval_seconds=sync_interval,
+                    run_immediately=True,
+                )
+                logger.info("Automated recurring live market sync loop activated (every %.0f seconds).", sync_interval)
+
+            # 3. Market Hours Auto-Scheduler (09:15, 13:00, 17:00 IST cron)
+            if os.getenv("MARKET_HOURS_SYNC_ENABLED", "true").lower() in ("true", "1", "yes"):
+                scheduled_slots = _scheduler.schedule_market_hours_sync(engine)
+                logger.info(
+                    "Market Hours Auto-Scheduler activated for IST slots: %s",
+                    scheduled_slots,
+                )
+        except Exception as err:
+            logger.warning("Could not initialize scheduler in lifespan: %s", err)
+
     yield
+
+    if _scheduler:
+        try:
+            _scheduler.stop_all()
+        except Exception as err:
+            logger.warning("Error stopping scheduler: %s", err)
     logger.info("Shutting down Indian IPO Recommendation Platform API...")
 
 

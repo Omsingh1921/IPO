@@ -80,6 +80,26 @@ class HealthResponse(BaseModel):
     checks: Dict[str, HealthCheckDetail] = Field(..., description="Individual subsystem probe results")
 
 
+class UpstreamFeedProbeDetail(BaseModel):
+    """Diagnostic latency and status detail for an individual external upstream feed."""
+    name: str = Field(..., description="Feed display name (e.g. BSE India, NSE India, InvestorGain GMP)")
+    status: str = Field(..., description="Feed health status (healthy, degraded, unhealthy)")
+    latency_ms: float = Field(..., description="Round-trip HTTP probe latency in milliseconds")
+    http_code: Optional[int] = Field(None, description="Upstream HTTP status code (e.g. 200, 403, 503)")
+    items_count: int = Field(0, description="Count of live offerings or records detected")
+    last_check: str = Field(..., description="Formatted timestamp of last probe check")
+    error: Optional[str] = Field(None, description="Detailed error or exception reason if unhealthy")
+
+
+class UpstreamFeedsHealthResponse(BaseModel):
+    """Consolidated real-time latency and status across all external upstream feeds."""
+    overall_status: str = Field(..., description="Consolidated status (healthy, degraded, unhealthy)")
+    timestamp: str = Field(..., description="UTC ISO-8601 execution timestamp")
+    total_probe_duration_ms: float = Field(..., description="Duration of concurrent probing in milliseconds")
+    feeds: Dict[str, UpstreamFeedProbeDetail] = Field(..., description="Probes per feed key (bse, nse, gmp)")
+
+
+
 # ==========================================
 # IPO Information Schemas
 # ==========================================
@@ -94,8 +114,18 @@ class IPOListItem(BaseModel):
     price_band: Optional[str] = Field(None, description="Offering price band range (e.g., 480 - 500)")
     open_date: Optional[str] = Field(None, description="Bidding commencement date")
     close_date: Optional[str] = Field(None, description="Bidding conclusion date")
+    allotment_date: Optional[str] = Field(None, description="Basis of allotment finalization date")
     listing_date: Optional[str] = Field(None, description="Scheduled exchange listing date")
+    subscription_times: Optional[float] = Field(None, description="Total subscription multiple in times (e.g., 12.5x)")
+    subscription_summary: Optional[str] = Field(None, description="Subscription breakdown by category (e.g., QIB: 12.5x, Retail: 4.5x)")
+    qib_subscription: Optional[float] = Field(None, description="QIB category subscription multiple in times")
+    nii_subscription: Optional[float] = Field(None, description="NII category subscription multiple in times")
+    retail_subscription: Optional[float] = Field(None, description="Retail category subscription multiple in times")
+    employee_subscription: Optional[float] = Field(None, description="Employee category subscription multiple in times")
+    subscription_breakdown: Optional[Dict[str, float]] = Field(None, description="Granular category subscription multiples map")
     gmp_percentage: Optional[float] = Field(None, description="Latest Grey Market Premium percentage")
+    segment: Optional[str] = Field(None, description="Offering segment, e.g. Mainboard or SME")
+    ticker_symbol: Optional[str] = Field(None, description="Exchange ticker or symbol")
 
 
 class IPOListResponse(BaseModel):
@@ -308,3 +338,41 @@ class MetricsResponse(BaseModel):
     counters: List[Dict[str, Any]] = Field(default_factory=list, description="Registered monotonic counters")
     gauges: List[Dict[str, Any]] = Field(default_factory=list, description="Instantaneous gauge instruments")
     timers: List[Dict[str, Any]] = Field(default_factory=list, description="Latency timers and histograms")
+
+
+# ==========================================
+# Wishlist & Post-Listing History Schemas
+# ==========================================
+
+class WishlistHistoryItemDto(BaseModel):
+    """Post-listing track record for wishlisted IPO offering."""
+    id: Optional[int] = Field(None, description="Unique history record ID")
+    ipo_id: str = Field(..., description="Unique IPO identifier")
+    company_name: str = Field(..., description="Security / Issuer company name")
+    segment: Optional[str] = Field(None, description="Market segment (Mainboard / SME)")
+    issue_price: Optional[float] = Field(None, description="Final offer / issue price in INR")
+    listing_price: Optional[float] = Field(None, description="Actual exchange opening/listing price in INR")
+    listing_gain_pct: Optional[float] = Field(None, description="Listing day return percentage ((listing - issue)/issue * 100)")
+    listing_date: Optional[str] = Field(None, description="Exchange listing date (YYYY-MM-DD)")
+    listing_day_close: Optional[float] = Field(None, description="Listing day closing price in INR")
+    status: str = Field(default="Listed", description="Listing status")
+    notes: Optional[str] = Field(None, description="User notes or observation tags")
+    wishlist_added_at: Optional[str] = Field(None, description="Timestamp when bookmarked in wishlist")
+    created_at: Optional[str] = Field(None, description="Creation timestamp")
+    updated_at: Optional[str] = Field(None, description="Last update timestamp")
+
+
+class WishlistHistoryListResponse(BaseModel):
+    """List response for wishlist post-listing history."""
+    total: int = Field(..., description="Total count of post-listing history records")
+    items: List[WishlistHistoryItemDto] = Field(default_factory=list, description="Array of history records")
+
+
+class UpdateListingPriceRequest(BaseModel):
+    """Payload to record or update actual listing price for a wishlisted IPO."""
+    listing_price: float = Field(..., gt=0, description="Actual listing price in INR")
+    issue_price: Optional[float] = Field(None, gt=0, description="Optional override for issue price")
+    listing_day_close: Optional[float] = Field(None, gt=0, description="Optional listing day close price in INR")
+    listing_date: Optional[str] = Field(None, description="Optional listing date (YYYY-MM-DD)")
+    notes: Optional[str] = Field(None, max_length=1000, description="Optional observation notes")
+

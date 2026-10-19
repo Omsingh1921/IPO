@@ -248,11 +248,24 @@ class MasterIPOMapper:
             data_cutoff=parse_datetime_safe(record.ipo_status.data_cutoff) or datetime.now(),
             open_date=parse_date_safe(record.ipo_status.open_date) or date.today(),
             close_date=parse_date_safe(record.ipo_status.close_date) or date.today(),
+            allotment_date=parse_date_safe(getattr(record.ipo_status, "allotment_date", None)),
             listing_date=parse_date_safe(record.ipo_status.listing_date),
             listing_status=record.ipo_status.listing_status.value if isinstance(record.ipo_status.listing_status, ListingStatusEnum) else str(record.ipo_status.listing_status),
-            issue_size=to_float_safe(iss.issue_size) or 0.0,
-            fresh_issue_amount=to_float_safe(iss.fresh_issue_amount) or 0.0,
-            ofs_amount=to_float_safe(iss.ofs_amount) or 0.0,
+            issue_size=(
+                round(((to_float_safe(iss.issue_size) or 0.0) * (to_float_safe(iss.price_band_high) or to_float_safe(iss.issue_price) or 100.0)) / 10000000.0, 2)
+                if (to_float_safe(iss.issue_size) or 0.0) > 50000
+                else (to_float_safe(iss.issue_size) or 0.0)
+            ),
+            fresh_issue_amount=(
+                round(((to_float_safe(iss.fresh_issue_amount) or 0.0) * (to_float_safe(iss.price_band_high) or to_float_safe(iss.issue_price) or 100.0)) / 10000000.0, 2)
+                if (to_float_safe(iss.fresh_issue_amount) or 0.0) > 50000
+                else (to_float_safe(iss.fresh_issue_amount) or 0.0)
+            ),
+            ofs_amount=(
+                round(((to_float_safe(iss.ofs_amount) or 0.0) * (to_float_safe(iss.price_band_high) or to_float_safe(iss.issue_price) or 100.0)) / 10000000.0, 2)
+                if (to_float_safe(iss.ofs_amount) or 0.0) > 50000
+                else (to_float_safe(iss.ofs_amount) or 0.0)
+            ),
             fresh_issue_percentage=to_float_safe(iss.fresh_issue_percentage),
             ofs_percentage=to_float_safe(iss.ofs_percentage),
             face_value=to_float_safe(iss.face_value) or 10.0,
@@ -350,7 +363,12 @@ class MasterIPOMapper:
             sub_time = parse_datetime_safe(ref_sub.retrieval_timestamp) or datetime.now()
 
             # Calculate overall subscription
-            tot_mult = max([s.subscription_multiple for s in sub_dict.values() if s.subscription_multiple is not None] or [0.0])
+            if "Total" in sub_dict and sub_dict["Total"].subscription_multiple is not None:
+                tot_mult = float(sub_dict["Total"].subscription_multiple)
+            elif "Overall" in sub_dict and sub_dict["Overall"].subscription_multiple is not None:
+                tot_mult = float(sub_dict["Overall"].subscription_multiple)
+            else:
+                tot_mult = max([s.subscription_multiple for s in sub_dict.values() if s.subscription_multiple is not None] or [0.0])
 
             subscription_models.append(
                 SubscriptionModel(
@@ -569,15 +587,61 @@ class MasterIPOMapper:
             industry=master_model.industry,
         )
 
+        open_d_str = format_date_safe(master_model.open_date) or ""
+        close_d_str = format_date_safe(master_model.close_date) or ""
+        list_d_str = format_date_safe(master_model.listing_date) or ""
+
+        allot_d_str = format_date_safe(getattr(master_model, "allotment_date", None))
+        if not allot_d_str and close_d_str:
+            try:
+                from datetime import datetime as dt_cls, timedelta as td_cls
+                cd = dt_cls.strptime(close_d_str, "%Y-%m-%d").date()
+
+                # Validate whether existing list_d_str is strictly after close_date
+                ld = None
+                if list_d_str:
+                    try:
+                        parsed_ld = dt_cls.strptime(list_d_str, "%Y-%m-%d").date()
+                        if parsed_ld > cd:
+                            ld = parsed_ld
+                    except Exception:
+                        pass
+
+                # If missing or invalid (<= cd), derive SEBI T+3 trading day listing date
+                if not ld:
+                    cur = cd
+                    added = 0
+                    while added < 3:
+                        cur += td_cls(days=1)
+                        if cur.weekday() < 5:
+                            added += 1
+                    ld = cur
+                    list_d_str = ld.isoformat()
+
+                # Derive SEBI T+1 working day basis of allotment date
+                cur = cd
+                added = 0
+                while added < 1:
+                    cur += td_cls(days=1)
+                    if cur.weekday() < 5:
+                        added += 1
+                ad = cur
+                if ad >= ld:
+                    ad = ld - td_cls(days=1)
+                allot_d_str = ad.isoformat()
+            except Exception:
+                allot_d_str = None
+
         status = IPOStatus(
             status=IPOStatusEnum(master_model.status) if master_model.status in IPOStatusEnum._value2member_map_ else IPOStatusEnum.UPCOMING,
             research_date=format_date_safe(master_model.research_date) or "",
             research_time=format_time_safe(master_model.research_time) or "",
             data_cutoff=format_datetime_safe(master_model.data_cutoff) or "",
-            open_date=format_date_safe(master_model.open_date) or "",
-            close_date=format_date_safe(master_model.close_date) or "",
-            listing_date=format_date_safe(master_model.listing_date) or "",
+            open_date=open_d_str,
+            close_date=close_d_str,
+            listing_date=list_d_str,
             listing_status=ListingStatusEnum(master_model.listing_status) if master_model.listing_status in ListingStatusEnum._value2member_map_ else ListingStatusEnum.PRE_LISTING,
+            allotment_date=allot_d_str,
         )
 
         # 2. Issue Structure (Provenance Envelope Reconstruction)
@@ -602,22 +666,22 @@ class MasterIPOMapper:
         val_model: Optional[ValuationModel] = rel.get("valuation")
         if val_model:
             valuation_data = ValuationData(
-                reference_price=val_model.issue_price,
-                reference_eps=val_model.reference_eps or 0.0,
-                issue_pe=build_provenance_envelope(val_model.issue_pe, data_type=DataTypeEnum.CALCULATED),
+                reference_price=to_float_safe(val_model.issue_price) or 0.0,
+                reference_eps=to_float_safe(val_model.reference_eps) or 0.0,
+                issue_pe=build_provenance_envelope(to_float_safe(val_model.issue_pe) or 0.0, data_type=DataTypeEnum.CALCULATED),
                 valuation_method=val_model.valuation_method or "Relative PE",
                 valuation_source=val_model.valuation_source or "RHP",
                 valuation_date=format_date_safe(val_model.valuation_date) or "",
-                issue_pb=build_provenance_envelope(val_model.issue_pb, data_type=DataTypeEnum.CALCULATED) if val_model.issue_pb else None,
-                industry_pe=build_provenance_envelope(val_model.industry_pe) if val_model.industry_pe else None,
-                industry_pb=build_provenance_envelope(val_model.industry_pb) if val_model.industry_pb else None,
-                peer_average_pe=build_provenance_envelope(val_model.peer_average_pe) if val_model.peer_average_pe else None,
-                peer_average_pb=build_provenance_envelope(val_model.peer_average_pb) if val_model.peer_average_pb else None,
-                reference_book_value_per_share=val_model.reference_book_value_per_share,
+                issue_pb=build_provenance_envelope(to_float_safe(val_model.issue_pb)) if val_model.issue_pb else None,
+                industry_pe=build_provenance_envelope(to_float_safe(val_model.industry_pe)) if val_model.industry_pe else None,
+                industry_pb=build_provenance_envelope(to_float_safe(val_model.industry_pb)) if val_model.industry_pb else None,
+                peer_average_pe=build_provenance_envelope(to_float_safe(val_model.peer_average_pe)) if val_model.peer_average_pe else None,
+                peer_average_pb=build_provenance_envelope(to_float_safe(val_model.peer_average_pb)) if val_model.peer_average_pb else None,
+                reference_book_value_per_share=to_float_safe(val_model.reference_book_value_per_share),
             )
         else:
             valuation_data = ValuationData(
-                reference_price=master_model.price_band_high,
+                reference_price=to_float_safe(master_model.price_band_high) or 0.0,
                 reference_eps=0.0,
                 issue_pe=build_provenance_envelope(0.0),
                 valuation_method="Not available",
@@ -707,6 +771,15 @@ class MasterIPOMapper:
                     source_date=s_date,
                     retrieval_timestamp=r_time,
                 )
+            if getattr(sub_m, "total_subscription", None) is not None:
+                subscription_data["Total"] = SubscriptionCategory(
+                    shares_offered=0,
+                    shares_bid=0,
+                    subscription_multiple=float(sub_m.total_subscription),
+                    source="Exchange",
+                    source_date=s_date,
+                    retrieval_timestamp=r_time,
+                )
 
         # 7. Anchor Data
         anchor_data: Optional[AnchorData] = None
@@ -744,12 +817,12 @@ class MasterIPOMapper:
             gmp_m = gmp_models[0]
             stype = SourceTypeEnum(gmp_m.source_type) if gmp_m.source_type in SourceTypeEnum._value2member_map_ else SourceTypeEnum.UNOFFICIAL_GMP
             gmp_data = GMPData(
-                gmp_value=gmp_m.gmp_value,
-                gmp_percentage=gmp_m.gmp_percentage or 0.0,
+                gmp_value=to_float_safe(gmp_m.gmp_value) or 0.0,
+                gmp_percentage=to_float_safe(gmp_m.gmp_percentage) or 0.0,
                 gmp_date=format_date_safe(gmp_m.gmp_date) or "",
                 gmp_time=format_time_safe(gmp_m.gmp_time) or "",
-                reference_price=gmp_m.reference_price,
-                implied_price=gmp_m.implied_price,
+                reference_price=to_float_safe(gmp_m.reference_price) or 0.0,
+                implied_price=to_float_safe(gmp_m.implied_price) or 0.0,
                 source="Market Tracker",
                 source_type=stype,
             )
@@ -795,28 +868,28 @@ class MasterIPOMapper:
         if scen_m:
             supporting = json.loads(scen_m.supporting_factors) if scen_m.supporting_factors else []
             contradictory = json.loads(scen_m.contradictory_factors) if scen_m.contradictory_factors else []
-            scen_status = ScenarioStatusEnum(scen_m.scenario_status) if scen_m.scenario_status in ScenarioStatusEnum._value2member_map_ else ScenarioStatusEnum.CANDIDATE
+            scen_status = ScenarioStatusEnum(scen_m.scenario_status) if scen_m.scenario_status in ScenarioStatusEnum._value2member_map_ else ScenarioStatusEnum.INSUFFICIENT_EVIDENCE
 
             scenario_40_percent = Scenario40Percent(
-                reference_price=scen_m.reference_price,
-                target_price=scen_m.target_price,
+                reference_price=to_float_safe(scen_m.reference_price) or 0.0,
+                target_price=to_float_safe(scen_m.target_price) or 0.0,
                 supporting_factors=supporting,
                 contradictory_factors=contradictory,
                 scenario_status=scen_status,
                 scenario_methodology=scen_m.scenario_methodology,
                 scenario_data_timestamp=format_datetime_safe(scen_m.scenario_data_timestamp) or "",
-                required_price_movement=scen_m.required_price_movement,
-                target_pe=scen_m.target_pe,
-                target_pb=scen_m.target_pb,
+                required_price_movement=to_float_safe(scen_m.required_price_movement) or 40.0,
+                target_pe=to_float_safe(scen_m.target_pe),
+                target_pb=to_float_safe(scen_m.target_pb),
             )
         else:
-            ref_p = master_model.price_band_high
+            ref_p = to_float_safe(master_model.price_band_high) or 0.0
             scenario_40_percent = Scenario40Percent(
                 reference_price=ref_p,
                 target_price=round(ref_p * 1.40, 2),
                 supporting_factors=[],
                 contradictory_factors=[],
-                scenario_status=ScenarioStatusEnum.CANDIDATE,
+                scenario_status=ScenarioStatusEnum.INSUFFICIENT_EVIDENCE,
                 scenario_methodology="Standardized +40% target hypothesis",
                 scenario_data_timestamp=format_datetime_safe(master_model.data_cutoff) or "",
             )

@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 
 from ipo_platform.adapters.base import AdapterSyncResult, BaseSourceAdapter
 from ipo_platform.adapters.bse_adapter import BSEAdapter
+from ipo_platform.adapters.financials_adapter import FinancialsBridgeAdapter
 from ipo_platform.adapters.gmp_adapter import GMPAdapter
 from ipo_platform.adapters.nse_adapter import NSEAdapter
 from ipo_platform.db import GMPRepository, IPOWriteRepository
@@ -88,6 +89,7 @@ class AdapterManager:
             self.register_adapter(NSEAdapter())
             self.register_adapter(BSEAdapter())
             self.register_adapter(GMPAdapter())
+            self.register_adapter(FinancialsBridgeAdapter())
 
     def register_adapter(self, adapter: BaseSourceAdapter) -> None:
         """Registers a data source adapter under its normalized name."""
@@ -95,6 +97,9 @@ class AdapterManager:
         self._adapters[key] = adapter
         if "gmp" in key:
             self._adapters["gmp"] = adapter
+        if "financial" in key:
+            self._adapters["financials"] = adapter
+            self._adapters["chittorgarh"] = adapter
         logger.debug("Registered adapter '%s' (%s)", key, adapter.__class__.__name__)
 
     def get_adapter(self, source_name: str) -> Optional[BaseSourceAdapter]:
