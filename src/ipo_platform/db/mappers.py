@@ -740,33 +740,38 @@ class MasterIPOMapper:
         subscription_data: Dict[str, SubscriptionCategory] = {}
         sub_models: List[SubscriptionModel] = rel.get("subscriptions", [])
         if sub_models:
+            sub_models = sorted(
+                sub_models,
+                key=lambda s: (s.subscription_date or date.min, s.id or 0),
+                reverse=True,
+            )
             sub_m = sub_models[0]
             s_date = format_date_safe(sub_m.subscription_date) or ""
             r_time = format_datetime_safe(sub_m.retrieval_timestamp) or ""
 
-            if sub_m.QIB_shares_offered is not None:
+            if sub_m.QIB_shares_offered is not None or sub_m.QIB_subscription_multiple is not None:
                 subscription_data["QIB"] = SubscriptionCategory(
-                    shares_offered=sub_m.QIB_shares_offered,
+                    shares_offered=sub_m.QIB_shares_offered or 0,
                     shares_bid=sub_m.QIB_shares_bid or 0,
-                    subscription_multiple=sub_m.QIB_subscription_multiple or 0.0,
+                    subscription_multiple=float(sub_m.QIB_subscription_multiple or 0.0),
                     source="Exchange",
                     source_date=s_date,
                     retrieval_timestamp=r_time,
                 )
-            if sub_m.NII_total_shares_offered is not None:
+            if sub_m.NII_total_shares_offered is not None or sub_m.NII_total_subscription_multiple is not None:
                 subscription_data["NII"] = SubscriptionCategory(
-                    shares_offered=sub_m.NII_total_shares_offered,
+                    shares_offered=sub_m.NII_total_shares_offered or 0,
                     shares_bid=sub_m.NII_total_shares_bid or 0,
-                    subscription_multiple=sub_m.NII_total_subscription_multiple or 0.0,
+                    subscription_multiple=float(sub_m.NII_total_subscription_multiple or 0.0),
                     source="Exchange",
                     source_date=s_date,
                     retrieval_timestamp=r_time,
                 )
-            if sub_m.retail_shares_offered is not None:
+            if sub_m.retail_shares_offered is not None or sub_m.retail_subscription_multiple is not None:
                 subscription_data["Retail"] = SubscriptionCategory(
-                    shares_offered=sub_m.retail_shares_offered,
+                    shares_offered=sub_m.retail_shares_offered or 0,
                     shares_bid=sub_m.retail_shares_bid or 0,
-                    subscription_multiple=sub_m.retail_subscription_multiple or 0.0,
+                    subscription_multiple=float(sub_m.retail_subscription_multiple or 0.0),
                     source="Exchange",
                     source_date=s_date,
                     retrieval_timestamp=r_time,

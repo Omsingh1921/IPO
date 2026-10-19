@@ -147,6 +147,10 @@ class GMPAdapter(BaseSourceAdapter):
             allotment_date=raw_item.get("allotment_date"),
             listing_date=raw_item.get("listing_date"),
             subscription_multiple=raw_item.get("subscription"),
+            issue_size_cr=raw_item.get("issue_size"),
+            qib_subscription=raw_item.get("qib"),
+            nii_subscription=raw_item.get("nii"),
+            retail_subscription=raw_item.get("retail"),
         )
 
         return (ipo_id, gmp_data)

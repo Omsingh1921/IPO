@@ -143,6 +143,48 @@ class IPOIngestionService:
                     session.flush()
 
                 self.gmp_repo.save_gmp_snapshot(session, target_id, gmp_data)
+
+                # Update master issue size / price if newer live data is present
+                master_row = session.execute(select(IPOMasterModel).where(IPOMasterModel.ipo_id == target_id)).scalar_one_or_none()
+                if master_row:
+                    if getattr(gmp_data, "issue_size_cr", None) and gmp_data.issue_size_cr > 0:
+                        master_row.issue_size = gmp_data.issue_size_cr
+                    if getattr(gmp_data, "reference_price", None) and gmp_data.reference_price > 0:
+                        master_row.price_band_high = gmp_data.reference_price
+
+                # Record or update live subscription snapshot
+                if getattr(gmp_data, "subscription_multiple", None) is not None:
+                    from ipo_platform.db.models import SubscriptionModel
+                    sub_date = date.today()
+                    now_dt = datetime.now()
+                    sub_row = session.execute(
+                        select(SubscriptionModel).where(
+                            SubscriptionModel.ipo_id == target_id,
+                            SubscriptionModel.subscription_date == sub_date,
+                        )
+                    ).scalars().first()
+                    if sub_row:
+                        sub_row.total_subscription = gmp_data.subscription_multiple
+                        if getattr(gmp_data, "qib_subscription", None) is not None:
+                            sub_row.QIB_subscription_multiple = gmp_data.qib_subscription
+                        if getattr(gmp_data, "nii_subscription", None) is not None:
+                            sub_row.NII_total_subscription_multiple = gmp_data.nii_subscription
+                        if getattr(gmp_data, "retail_subscription", None) is not None:
+                            sub_row.retail_subscription_multiple = gmp_data.retail_subscription
+                        sub_row.retrieval_timestamp = now_dt
+                    else:
+                        new_sub = SubscriptionModel(
+                            ipo_id=target_id,
+                            subscription_date=sub_date,
+                            subscription_day="Live",
+                            total_subscription=gmp_data.subscription_multiple,
+                            QIB_subscription_multiple=getattr(gmp_data, "qib_subscription", None),
+                            NII_total_subscription_multiple=getattr(gmp_data, "nii_subscription", None),
+                            retail_subscription_multiple=getattr(gmp_data, "retail_subscription", None),
+                            retrieval_timestamp=now_dt,
+                        )
+                        session.add(new_sub)
+
                 if gmp_data.allotment_date or gmp_data.listing_date:
                     self.write_repo.update_dates(
                         session,

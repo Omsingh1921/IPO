@@ -230,6 +230,10 @@ class GMPData:
     allotment_date: Optional[str] = None
     listing_date: Optional[str] = None
     subscription_multiple: Optional[float] = None
+    qib_subscription: Optional[float] = None
+    nii_subscription: Optional[float] = None
+    retail_subscription: Optional[float] = None
+    issue_size_cr: Optional[float] = None
 
 
 @dataclass

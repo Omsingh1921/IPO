@@ -68,7 +68,9 @@ def _fetch_related_models(session: Session, ipo_id: str) -> Dict[str, Any]:
     ).scalars().first()
 
     subscriptions = session.execute(
-        select(SubscriptionModel).where(SubscriptionModel.ipo_id == ipo_id)
+        select(SubscriptionModel)
+        .where(SubscriptionModel.ipo_id == ipo_id)
+        .order_by(SubscriptionModel.subscription_date.desc(), SubscriptionModel.id.desc())
     ).scalars().all()
 
     anchor_header = session.execute(

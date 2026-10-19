@@ -384,6 +384,71 @@ class LiveMarketClient:
             logger.warning("Live BSE fetch encountered network/parsing error: %s", err)
             raise
 
+    def fetch_investorgain_live_subscriptions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetches live real-time subscription book updates (Total, QIB, NII, Retail)
+        and live GMP directly from InvestorGain /report/ipo-subscription-live/333/.
+        """
+        sub_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            url = "https://www.investorgain.com/report/ipo-subscription-live/333/"
+            extra_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/json,*/*",
+            }
+            raw_data = self._http_get(url, extra_headers=extra_headers)
+            content_str = raw_data.decode("utf-8", errors="ignore")
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(content_str, "html.parser")
+            table = soup.find("table")
+            if not table:
+                return sub_map
+
+            def _pf(txt: str) -> Optional[float]:
+                if not txt:
+                    return None
+                m = re.search(r"([0-9\.]+)", txt.replace(",", ""))
+                return float(m.group(1)) if m else None
+
+            for r in table.find_all("tr")[1:]:
+                cells = r.find_all("td")
+                if not cells or len(cells) < 3:
+                    continue
+                raw_name = cells[0].get_text(strip=True)
+                total_sub_text = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+                qib_text = cells[2].get_text(strip=True) if len(cells) > 2 else ""
+                nii_text = cells[5].get_text(strip=True) if len(cells) > 5 else ""
+                ret_text = cells[6].get_text(strip=True) if len(cells) > 6 else ""
+                size_text = cells[8].get_text(strip=True) if len(cells) > 8 else ""
+                price_text = cells[9].get_text(strip=True) if len(cells) > 9 else ""
+
+                gmp_m = re.search(r"GMP:[^0-9]*([0-9\.\-]+)\s*\(([0-9\.\-]+)%\)", raw_name)
+                gmp_val = float(gmp_m.group(1)) if gmp_m else None
+                gmp_pct = float(gmp_m.group(2)) if gmp_m else None
+
+                clean_name = re.sub(r"(?i)(BSE\s*SME|NSE\s*SME|SME|IPO|GMP:.*|CT|C|Allotted).*", "", raw_name).strip()
+                sub_clean_str = re.sub(r"\d{1,2}(?:st|nd|rd|th).*", "", total_sub_text).strip()
+                sub_val = _pf(sub_clean_str)
+
+                brand = re.sub(r"(?i)\b(limited|ltd|ipo|pvt|private|india)\b", "", clean_name).strip().lower()
+                toks = [t for t in re.split(r"\W+", brand) if len(t) >= 3]
+                key = toks[0] if toks else clean_name.lower()
+
+                sub_map[key] = {
+                    "company_name": clean_name,
+                    "sub_total": sub_val,
+                    "qib": _pf(qib_text),
+                    "nii": _pf(nii_text),
+                    "retail": _pf(ret_text),
+                    "gmp_val": gmp_val,
+                    "gmp_pct": gmp_pct,
+                    "size_cr": _pf(size_text),
+                    "price": _pf(price_text),
+                }
+        except Exception as e:
+            logger.debug("Live subscription table fetch note: %s", e)
+        return sub_map
+
     def fetch_gmp_live(
         self,
         url: str = "https://www.investorgain.com/report/ipo-gmp-live/331/",
@@ -395,8 +460,11 @@ class LiveMarketClient:
         Scrapes real-time quotes from InvestorGain or parses standard JSON feeds.
         """
         try:
+            # First fetch live subscription breakdown if available
+            live_subs = self.fetch_investorgain_live_subscriptions()
+
             extra_headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/json,*/*",
             }
             raw_data = self._http_get(url, extra_headers=extra_headers)
@@ -419,6 +487,7 @@ class LiveMarketClient:
                             "gmp": 1,
                             "sub": 3,
                             "price": 4,
+                            "size": 5,
                             "lot": 6,
                             "open": 7,
                             "close": 8,
@@ -437,6 +506,8 @@ class LiveMarketClient:
                                     col_idx["sub"] = th_pos
                                 elif any(k in th_t for k in ("price", "cap", "band")):
                                     col_idx["price"] = th_pos
+                                elif any(k in th_t for k in ("size", "issue size", "issue_size", "cr")):
+                                    col_idx["size"] = th_pos
                                 elif "lot" in th_t:
                                     col_idx["lot"] = th_pos
                                 elif "open" in th_t:
@@ -452,6 +523,7 @@ class LiveMarketClient:
                         gmp_pos = col_idx.get("gmp", 1)
                         sub_pos = col_idx.get("sub", 3)
                         price_pos = col_idx.get("price", 4)
+                        size_pos = col_idx.get("size", 5)
                         lot_pos = col_idx.get("lot", 6)
                         boa_pos = col_idx.get("allotment", 9)
                         list_pos = col_idx.get("listing", 10)
@@ -484,12 +556,12 @@ class LiveMarketClient:
 
                             gmp_cell = cells[gmp_pos].get_text(strip=True)
                             m = re.search(r"([-\d\.]+)\s*\(([-\d\.]+)%\)", gmp_cell)
-                            if not m:
-                                continue
-                            try:
-                                gmp_val = float(m.group(1))
-                            except ValueError:
-                                continue
+                            gmp_val = 0.0
+                            if m:
+                                try:
+                                    gmp_val = float(m.group(1))
+                                except ValueError:
+                                    gmp_val = 0.0
 
                             price_cell = cells[price_pos].get_text(strip=True) if len(cells) > price_pos else "0"
                             p_clean = re.sub(r"[^\d\.]", "", price_cell)
@@ -502,11 +574,23 @@ class LiveMarketClient:
                             sub_val = None
                             if len(cells) > sub_pos:
                                 sub_cell = cells[sub_pos].get_text(strip=True)
-                                sub_clean = re.sub(r"[^\d\.]", "", sub_cell)
+                                sub_cleaned = re.sub(r"\d{1,2}(?:st|nd|rd|th).*", "", sub_cell).strip()
+                                sub_clean = re.sub(r"[^\d\.]", "", sub_cleaned)
                                 try:
                                     sub_val = float(sub_clean) if sub_clean else None
                                 except ValueError:
                                     sub_val = None
+
+                            # Dynamic issue size (Cr)
+                            size_cr_val = None
+                            if size_pos is not None and len(cells) > size_pos:
+                                size_cell = cells[size_pos].get_text(strip=True).replace(",", "")
+                                sz_match = re.search(r"([0-9\.]+)", size_cell)
+                                if sz_match:
+                                    try:
+                                        size_cr_val = float(sz_match.group(1))
+                                    except ValueError:
+                                        size_cr_val = None
 
                             # Dynamic lot size
                             lot_val = None
@@ -530,6 +614,25 @@ class LiveMarketClient:
                                 list_cell = cells[list_pos].get_text(strip=True)
                                 listing_date = _parse_investorgain_date_to_iso(list_cell)
 
+                            # Check live subscription map for enriched values
+                            qib_sub = None
+                            nii_sub = None
+                            ret_sub = None
+                            for sub_k, sub_info in live_subs.items():
+                                if len(sub_k) >= 3 and any(sub_k == t.lower() for t in tokens):
+                                    if sub_info.get("sub_total") is not None:
+                                        sub_val = sub_info["sub_total"]
+                                    if sub_info.get("gmp_val") is not None:
+                                        gmp_val = sub_info["gmp_val"]
+                                    if sub_info.get("size_cr") is not None:
+                                        size_cr_val = sub_info["size_cr"]
+                                    if sub_info.get("price") is not None:
+                                        ref_price = sub_info["price"]
+                                    qib_sub = sub_info.get("qib")
+                                    nii_sub = sub_info.get("nii")
+                                    ret_sub = sub_info.get("retail")
+                                    break
+
                             items.append({
                                 "ipo_id": matched_id,
                                 "company_name": raw_name,
@@ -542,6 +645,10 @@ class LiveMarketClient:
                                 "listing_date": listing_date,
                                 "subscription": sub_val,
                                 "lot_size": lot_val,
+                                "issue_size": size_cr_val,
+                                "qib": qib_sub,
+                                "nii": nii_sub,
+                                "retail": ret_sub,
                             })
                             if len(items) >= limit:
                                 break
