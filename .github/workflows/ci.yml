@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test-matrix:
-    name: Python ${{ matrix.python-version }} on ${{ matrix.database }}
+    name: Python ${{ matrix.python-version }} on ${{ matrix.database.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -21,7 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
-        database: ["sqlite", "mysql"]
+        database:
+          - name: sqlite
+            url: "sqlite:///test_ci.db"
+          - name: mysql
+            url: "mysql+pymysql://ipo_user:ipo_password@127.0.0.1:3306/ipo_platform"
 
     services:
       mysql:
@@ -37,7 +41,7 @@ jobs:
 
     env:
       PYTHONPATH: src
-      DATABASE_URL: ${{ matrix.database == 'mysql' && 'mysql+pymysql://ipo_user:ipo_password@127.0.0.1:3306/ipo_platform' || 'sqlite:///test_ci.db' }}
+      DATABASE_URL: ${{ matrix.database.url }}
 
     steps:
       - name: Checkout Repository
