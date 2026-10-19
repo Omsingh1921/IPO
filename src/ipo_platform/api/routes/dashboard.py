@@ -1681,6 +1681,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
     }
 
     function showFeedAlert(msg) {
+      if (sessionStorage.getItem('feed_alert_dismissed') === 'true') return;
       const banner = document.getElementById('feedAlertBanner');
       const text = document.getElementById('feedAlertMessage');
       if (banner && text) {
@@ -1690,6 +1691,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
     }
 
     function dismissFeedAlert() {
+      sessionStorage.setItem('feed_alert_dismissed', 'true');
       const banner = document.getElementById('feedAlertBanner');
       if (banner) banner.style.display = 'none';
     }
@@ -2150,6 +2152,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
                 <span>${escapeHtml(ipo.ticker_symbol || ipo.ipo_id)}</span>
                 <span>•</span>
                 <span>${escapeHtml(ipo.sector || 'General')}</span>
+                <span class="badge" style="cursor: pointer; background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(37, 99, 235, 0.35)); border: 1px solid rgba(168, 85, 247, 0.45); color: #c4b5fd; font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" onclick="event.stopPropagation(); openIpoDetailsWithAi('${escapeHtml(ipo.ipo_id)}')" title="Open Google Gemini AI Thesis & Copilot">✨ Gemini AI</span>
               </div>
             </div>
           </div>
