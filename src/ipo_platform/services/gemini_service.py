@@ -15,7 +15,8 @@ from ipo_platform.models.schema import MasterIPORecord
 
 logger = logging.getLogger("ipo_platform.services.gemini")
 
-DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+FALLBACK_CANDIDATE_MODELS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash"]
 
 
 class GeminiService:
@@ -37,13 +38,11 @@ class GeminiService:
         return bool(self.api_key and len(self.api_key) > 10)
 
     def _call_gemini_api(self, prompt: str, system_instruction: Optional[str] = None) -> Optional[str]:
-        """Executes REST request to Google Generative Language API."""
+        """Executes REST request to Google Generative Language API with smart model fallback."""
         if not self.is_configured:
             return None
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
-
         contents = [{"parts": [{"text": prompt}]}]
         body: Dict[str, Any] = {
             "contents": contents,
@@ -59,23 +58,36 @@ class GeminiService:
                 "parts": [{"text": system_instruction}]
             }
 
-        try:
-            resp = requests.post(url, headers=headers, json=body, timeout=self.timeout)
-            if resp.status_code == 200:
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        return parts[0].get("text", "").strip()
-            else:
-                logger.warning(
-                    "Gemini API returned status %s: %s",
-                    resp.status_code,
-                    resp.text[:200],
-                )
-        except Exception as exc:
-            logger.error("Gemini API call failed: %s", exc)
+        models_to_try = [self.model]
+        for fb in FALLBACK_CANDIDATE_MODELS:
+            if fb not in models_to_try:
+                models_to_try.append(fb)
+
+        for mod in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={self.api_key}"
+            try:
+                resp = requests.post(url, headers=headers, json=body, timeout=self.timeout)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            if self.model != mod:
+                                self.model = mod
+                            return parts[0].get("text", "").strip()
+                elif resp.status_code == 404:
+                    logger.info("Model '%s' returned 404, attempting fallback model...", mod)
+                    continue
+                else:
+                    logger.warning(
+                        "Gemini API returned status %s for model '%s': %s",
+                        resp.status_code,
+                        mod,
+                        resp.text[:200],
+                    )
+            except Exception as exc:
+                logger.error("Gemini API call failed for model '%s': %s", mod, exc)
 
         return None
 
