@@ -66,12 +66,16 @@ The API supports dual enterprise authentication methods:
 ## 5. Local Setup & Execution
 
 ### Prerequisites
-- Python 3.11+ (tested on Python 3.13)
-- SQLite (default) or PostgreSQL
+- Python 3.10+ (verified and tested on Python 3.12.10)
+- **MySQL 8.0+** (authoritative Primary System of Record with binary logging enabled for CDC)
+- **Redis 7.0+** (distributed lock engine, token revocation store, and rate limiter)
+- **Apache Kafka + Debezium Connect** (Change Data Capture streaming pipeline; integration verified via Docker Compose)
+- *Note:* Elasticsearch, Kibana, and Spring Boot are strictly out of scope and are not utilized.
 
 ### 1. Installation
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 2. Environment Configuration
@@ -80,9 +84,17 @@ Copy `.env.example` to `.env` and configure your environment variables:
 cp .env.example .env
 ```
 
-### 3. Run Web Dashboard & REST API
+### 3. Database Schema Migrations
+Apply Alembic migrations to set up the 14 core domain tables and operational tables:
 ```bash
-# Set PYTHONPATH and start Uvicorn
+python -m ipo_platform.cli migrate
+```
+
+### 4. Run Web Dashboard & REST API
+```bash
+# Launch FastAPI REST server with embedded single-page dashboard
+python -m ipo_platform.cli serve --host 0.0.0.0 --port 8000
+# or directly with uvicorn
 python -m uvicorn ipo_platform.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 Once started, access the Web Dashboard in your browser at:
@@ -92,25 +104,28 @@ API Documentation (when `DOCS_ENABLED=true`):
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
-### 4. Run CLI Operations
+### 5. Run CLI Operations
 ```bash
-# Ingest IPO record
-python -m ipo_platform.cli ingest data/samples/sample_ipo.json
+# Display CLI help
+python -m ipo_platform.cli --help
 
-# Evaluate recommendation
-python -m ipo_platform.cli evaluate --ipo-id SAMPLE-IPO-001
+# Generate morning daily intelligence briefing
+python -m ipo_platform.cli briefing --date 2026-10-14
 
-# Run portfolio allocation
-python -m ipo_platform.cli allocate --capital 500000 --profile MODERATE
+# Execute historical strategy backtest
+python -m ipo_platform.cli backtest
+
+# Synchronize offerings from exchange feeds
+python -m ipo_platform.cli sync-sources
 ```
 
-### 5. Run Test Suite
+### 6. Run Automated Test Suite
 ```bash
-# Run complete test suite (215 automated tests)
+# Run comprehensive test suite via unittest (226 tests)
 python -m unittest discover -s tests -p "test_*.py"
 
-# Run end-to-end integration tests
-python -m unittest tests/test_e2e_integration.py
+# Or run via pytest
+pytest -q
 ```
 
 ---
