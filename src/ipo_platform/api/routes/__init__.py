@@ -5,6 +5,7 @@ Aggregates all domain routers: health, ipos, recommendation, portfolio, and metr
 
 from fastapi import APIRouter
 
+from ipo_platform.api.routes.ai import router as ai_router
 from ipo_platform.api.routes.auth import router as auth_router
 from ipo_platform.api.routes.dashboard import router as dashboard_router
 from ipo_platform.api.routes.health import router as health_router
@@ -22,6 +23,7 @@ api_router.include_router(dashboard_router)
 api_router.include_router(auth_router)
 api_router.include_router(health_router)
 api_router.include_router(ipos_router)
+api_router.include_router(ai_router)
 api_router.include_router(recommendation_router)
 api_router.include_router(portfolio_router)
 api_router.include_router(metrics_router)
@@ -30,6 +32,7 @@ api_router.include_router(scheduler_router)
 
 __all__ = [
     "api_router",
+    "ai_router",
     "auth_router",
     "dashboard_router",
     "health_router",

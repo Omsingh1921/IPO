@@ -577,7 +577,44 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
       color: var(--text-secondary);
       font-size: 1.5rem;
       cursor: pointer;
-      line-height: 1;
+      /* Gemini AI Research Hub & Copilot */
+    .ai-chip {
+      background: rgba(139, 92, 246, 0.12);
+      border: 1px solid rgba(139, 92, 246, 0.35);
+      color: #c4b5fd;
+      border-radius: 9999px;
+      padding: 0.25rem 0.65rem;
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-weight: 500;
+    }
+    .ai-chip:hover {
+      background: rgba(139, 92, 246, 0.3);
+      border-color: #a855f7;
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+    .ai-chat-bubble-user {
+      align-self: flex-end;
+      background: rgba(59, 130, 246, 0.2);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #e2e8f0;
+      padding: 0.5rem 0.75rem;
+      border-radius: 12px 12px 2px 12px;
+      font-size: 0.8rem;
+      max-width: 85%;
+    }
+    .ai-chat-bubble-gemini {
+      align-self: flex-start;
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.35);
+      color: #f8fafc;
+      padding: 0.65rem 0.85rem;
+      border-radius: 12px 12px 12px 2px;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      max-width: 92%;
     }
 
     /* Disclaimer Footer */
@@ -686,7 +723,10 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
       <span id="chipGMP" class="feed-chip chip-loading" onclick="pollFeedHealth(true)" title="InvestorGain Live GMP Discovery">
         <span class="chip-dot dot-gray"></span> GMP: <span class="chip-latency">--ms</span>
       </span>
-      <button class="btn btn-secondary" onclick="pollFeedHealth(true)" title="Force refresh live feed pings" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 12px; height: 24px; cursor: pointer;">🔄</button>
+      <span id="chipGemini" class="feed-chip" style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd;" title="Google Gemini 1.5 Flash AI Engine">
+        <span class="chip-dot" style="background: #a855f7;"></span> ✨ Gemini AI: <span id="chipGeminiStatus" style="font-weight: 600;">Active</span>
+      </span>
+      <button class="btn btn-secondary" onclick="pollFeedHealth(true); pollGeminiStatus();" title="Force refresh live feed pings" style="padding: 2px 7px; font-size: 0.72rem; border-radius: 12px; height: 24px; cursor: pointer;">🔄</button>
     </div>
 
     <div class="auth-toolbar">
@@ -1402,6 +1442,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
       setViewMode(currentViewMode);
       checkAuthAndInit();
       pollFeedHealth();
+      pollGeminiStatus();
       setInterval(() => pollFeedHealth(false), 30000);
     });
 
@@ -2124,13 +2165,20 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
         <td>${gmpBadge}</td>
         <td>${statusBadge}</td>
         <td style="text-align: right;">
-          <div style="display: inline-flex; gap: 0.4rem; justify-content: flex-end; align-items: center;">
+          <div style="display: inline-flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
             <button 
               class="btn btn-secondary" 
-              style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-color: ${inWish ? 'rgba(245, 158, 11, 0.6)' : 'var(--border-color)'}; color: ${inWish ? '#fbbf24' : 'var(--text-secondary)'}; background: ${inWish ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)'}; font-weight: ${inWish ? '600' : 'normal'};" 
+              style="padding: 0.35rem 0.6rem; font-size: 0.75rem; border-color: ${inWish ? 'rgba(245, 158, 11, 0.6)' : 'var(--border-color)'}; color: ${inWish ? '#fbbf24' : 'var(--text-secondary)'}; background: ${inWish ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)'}; font-weight: ${inWish ? '600' : 'normal'};" 
               onclick="toggleWishlist('${escapeHtml(ipo.ipo_id)}', '${escapeHtml(ipo.company_name)}')"
               title="${inWish ? 'Remove from Wishlist' : 'Add to Wishlist'}">
-              ${inWish ? '★ Wishlisted' : '☆ Add to Wish'}
+              ${inWish ? '★' : '☆'}
+            </button>
+            <button 
+              class="btn" 
+              style="padding: 0.35rem 0.65rem; font-size: 0.75rem; font-weight: 600; background: linear-gradient(135deg, #7c3aed, #2563eb); border: none; color: white;" 
+              onclick="openIpoDetailsWithAi('${escapeHtml(ipo.ipo_id)}')"
+              title="Open Google Gemini AI Research Hub & Copilot">
+              ✨ Gemini AI
             </button>
             <button 
               class="btn" 
@@ -2212,14 +2260,21 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
           </div>
         </div>
 
-        <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+        <div style="margin-top: 1rem; display: flex; gap: 0.35rem;">
           <button 
             class="btn btn-secondary" 
-            style="flex: 1; border-color: ${inWish ? 'rgba(245, 158, 11, 0.6)' : 'var(--border-color)'}; color: ${inWish ? '#fbbf24' : 'var(--text-secondary)'}; background: ${inWish ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)'}; font-weight: ${inWish ? '600' : 'normal'};" 
+            style="flex: 0.85; border-color: ${inWish ? 'rgba(245, 158, 11, 0.6)' : 'var(--border-color)'}; color: ${inWish ? '#fbbf24' : 'var(--text-secondary)'}; background: ${inWish ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)'}; font-weight: ${inWish ? '600' : 'normal'}; font-size: 0.75rem;" 
             onclick="toggleWishlist('${escapeHtml(ipo.ipo_id)}', '${escapeHtml(ipo.company_name)}')">
-            ${inWish ? '★ Wishlisted' : '☆ Add to Wish'}
+            ${inWish ? '★ Wish' : '☆ Wish'}
           </button>
-          <button class="btn" style="flex: 1; font-weight: 600;" onclick="quickEvaluate('${escapeHtml(ipo.ipo_id)}')">Evaluate</button>
+          <button 
+            class="btn" 
+            style="flex: 1.25; font-weight: 600; font-size: 0.75rem; background: linear-gradient(135deg, #7c3aed, #2563eb); border: none; color: white;" 
+            onclick="openIpoDetailsWithAi('${escapeHtml(ipo.ipo_id)}')"
+            title="Open Google Gemini AI Research Hub">
+            ✨ Gemini AI
+          </button>
+          <button class="btn" style="flex: 1; font-weight: 600; font-size: 0.75rem;" onclick="quickEvaluate('${escapeHtml(ipo.ipo_id)}')">Evaluate</button>
         </div>
       `;
       return card;
@@ -3155,6 +3210,75 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
             ${finTableHtml}
           </div>
 
+          <!-- Phase 5: Google Gemini AI Research Hub Card -->
+          <div class="card" style="margin-bottom: 1rem; border: 1px solid rgba(139, 92, 246, 0.45); background: linear-gradient(135deg, rgba(26, 21, 46, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%); box-shadow: 0 8px 24px rgba(139, 92, 246, 0.15);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <div style="width: 36px; height: 36px; border-radius: 8px; background: linear-gradient(135deg, #7c3aed, #2563eb); display: flex; align-items: center; justify-content: center; font-size: 1.15rem; color: #fff; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);">
+                  ✨
+                </div>
+                <div>
+                  <h4 style="margin: 0; color: #f8fafc; font-size: 1.05rem; display: flex; align-items: center; gap: 0.4rem;">
+                    Google Gemini AI Research Hub
+                    <span id="geminiModelBadge_${escapeHtml(data.ipo_id)}" class="badge" style="background: rgba(139, 92, 246, 0.25); color: #c4b5fd; font-size: 0.68rem; padding: 0.15rem 0.45rem;">Gemini 1.5 Flash</span>
+                  </h4>
+                  <div style="font-size: 0.73rem; color: #94a3b8; margin-top: 2px;">
+                    Institutional Bull/Bear Thesis, Listing Guidance & Interactive Copilot
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.4rem;">
+                <button 
+                  id="btnGenThesis_${escapeHtml(data.ipo_id)}" 
+                  class="btn" 
+                  style="padding: 0.4rem 0.85rem; font-size: 0.8rem; font-weight: 600; background: linear-gradient(135deg, #7c3aed, #2563eb); border: none; color: white;" 
+                  onclick="generateGeminiThesis('${escapeHtml(data.ipo_id)}')">
+                  ✨ Generate AI Thesis
+                </button>
+              </div>
+            </div>
+
+            <!-- Thesis Output Area -->
+            <div id="geminiThesisOutput_${escapeHtml(data.ipo_id)}" style="display: none; margin-top: 0.75rem;"></div>
+
+            <!-- Interactive Gemini Copilot Q&A -->
+            <div style="margin-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0.85rem;">
+              <div style="font-size: 0.82rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                <span>💬</span> Ask Gemini AI Copilot
+              </div>
+
+              <!-- Quick Prompt Chips -->
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.65rem;">
+                <button type="button" class="ai-chip" onclick="askGeminiQuick('${escapeHtml(data.ipo_id)}', 'Should I apply for listing gain or long term holding?')">🎯 Listing Gain vs Long Term?</button>
+                <button type="button" class="ai-chip" onclick="askGeminiQuick('${escapeHtml(data.ipo_id)}', 'Is this IPO valuation cheap or expensive compared to peers?')">📊 Valuation vs Peers?</button>
+                <button type="button" class="ai-chip" onclick="askGeminiQuick('${escapeHtml(data.ipo_id)}', 'What is the best strategy for retail category single lot bidding?')">👥 Retail 1-Lot Strategy?</button>
+                <button type="button" class="ai-chip" onclick="askGeminiQuick('${escapeHtml(data.ipo_id)}', 'What are the biggest red flags and debt risks in RHP?')">⚠️ Red Flags in RHP?</button>
+              </div>
+
+              <!-- Chat History Container -->
+              <div id="geminiChatHistory_${escapeHtml(data.ipo_id)}" style="max-height: 220px; overflow-y: auto; margin-bottom: 0.65rem; display: none; flex-direction: column; gap: 0.5rem; padding: 0.5rem; background: rgba(0, 0, 0, 0.25); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.05);">
+              </div>
+
+              <!-- Input Row -->
+              <div style="display: flex; gap: 0.5rem;">
+                <input 
+                  type="text" 
+                  id="geminiQuestionInput_${escapeHtml(data.ipo_id)}" 
+                  placeholder="Ask Gemini any question in English or Hinglish (e.g. 'Is GMP sustainable?')" 
+                  onkeydown="if(event.key==='Enter') sendGeminiQuestion('${escapeHtml(data.ipo_id)}')"
+                  style="flex: 1; padding: 0.55rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid rgba(139, 92, 246, 0.35); background: rgba(15, 23, 42, 0.6); color: #f8fafc; font-size: 0.82rem;" />
+                <button 
+                  type="button"
+                  id="btnSendGemini_${escapeHtml(data.ipo_id)}" 
+                  class="btn" 
+                  style="padding: 0.55rem 0.95rem; font-size: 0.82rem; font-weight: 600; background: #6d28d9; border: none; color: white;"
+                  onclick="sendGeminiQuestion('${escapeHtml(data.ipo_id)}')">
+                  Ask ✨
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div style="display: flex; gap: 0.75rem; justify-content: flex-end; align-items: center; margin-top: 1rem;">
             <button 
               id="syncFinBtn"
@@ -3209,6 +3333,237 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
           syncBtn.innerText = "🔄 Auto-Sync 3-Year Financials";
         }
       }
+    }
+
+    async function openIpoDetailsWithAi(ipoId) {
+      await openIpoDetails(ipoId);
+      // Automatically generate or fetch Gemini thesis
+      generateGeminiThesis(ipoId);
+    }
+
+    async function generateGeminiThesis(ipoId) {
+      const btn = document.getElementById(`btnGenThesis_${ipoId}`);
+      const output = document.getElementById(`geminiThesisOutput_${ipoId}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle; margin-right: 4px;"></span> Analyzing with Gemini...`;
+      }
+      if (output) {
+        output.style.display = "block";
+        output.innerHTML = `
+          <div style="padding: 1.25rem; text-align: center; background: rgba(139, 92, 246, 0.06); border: 1px dashed rgba(139, 92, 246, 0.35); border-radius: var(--radius-sm);">
+            <div style="font-size: 0.95rem; font-weight: 600; color: #c4b5fd; margin-bottom: 0.35rem;">✨ Google Gemini AI is synthesizing financial filings, valuation & market sentiment...</div>
+            <div style="font-size: 0.74rem; color: #94a3b8;">Evaluating P/E, 3-year revenue growth, QIB subscription, and Grey Market Premium buffer.</div>
+          </div>
+        `;
+      }
+
+      try {
+        const resp = await fetch(`/ipos/${encodeURIComponent(ipoId)}/ai-thesis`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+          throw new Error(err.detail || resp.statusText);
+        }
+        const thesis = await resp.json();
+        renderGeminiThesis(ipoId, thesis);
+      } catch (err) {
+        if (output) {
+          output.innerHTML = `
+            <div style="padding: 0.85rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); color: #fca5a5; font-size: 0.82rem;">
+              ⚠️ AI Analysis note: ${escapeHtml(err.message)}
+            </div>
+          `;
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = "✨ Refresh AI Thesis";
+        }
+      }
+    }
+
+    function renderGeminiThesis(ipoId, t) {
+      const output = document.getElementById(`geminiThesisOutput_${ipoId}`);
+      if (!output) return;
+
+      const verdict = t.verdict || "CAUTION / NEUTRAL";
+      let verdictColor = "#3b82f6";
+      let verdictBg = "rgba(59, 130, 246, 0.15)";
+      let verdictBorder = "rgba(59, 130, 246, 0.35)";
+
+      if (verdict.includes("STRONG APPLY")) {
+        verdictColor = "#34d399";
+        verdictBg = "rgba(16, 185, 129, 0.15)";
+        verdictBorder = "rgba(16, 185, 129, 0.4)";
+      } else if (verdict.includes("APPLY")) {
+        verdictColor = "#60a5fa";
+        verdictBg = "rgba(59, 130, 246, 0.15)";
+        verdictBorder = "rgba(59, 130, 246, 0.4)";
+      } else if (verdict.includes("AVOID")) {
+        verdictColor = "#f87171";
+        verdictBg = "rgba(239, 68, 68, 0.15)";
+        verdictBorder = "rgba(239, 68, 68, 0.4)";
+      } else {
+        verdictColor = "#fbbf24";
+        verdictBg = "rgba(245, 158, 11, 0.15)";
+        verdictBorder = "rgba(245, 158, 11, 0.4)";
+      }
+
+      const bullList = (t.bull_case || []).map(b => `
+        <li style="margin-bottom: 0.4rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+          <span style="color: #34d399; font-weight: bold; flex-shrink: 0;">✓</span>
+          <span>${escapeHtml(b)}</span>
+        </li>
+      `).join("");
+
+      const bearList = (t.bear_case || []).map(b => `
+        <li style="margin-bottom: 0.4rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+          <span style="color: #f87171; font-weight: bold; flex-shrink: 0;">⚠</span>
+          <span>${escapeHtml(b)}</span>
+        </li>
+      `).join("");
+
+      output.style.display = "block";
+      output.innerHTML = `
+        <!-- Verdict Banner -->
+        <div style="background: ${verdictBg}; border: 1px solid ${verdictBorder}; border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <div style="font-weight: 800; font-size: 1.05rem; color: ${verdictColor}; letter-spacing: 0.3px;">
+              ${escapeHtml(verdict)}
+            </div>
+            <span class="badge" style="background: rgba(255,255,255,0.08); color: #cbd5e1; font-size: 0.72rem;">
+              ${t.confidence_percentage ? `${t.confidence_percentage}% Confidence` : 'Institutional View'}
+            </span>
+          </div>
+          <div style="font-size: 0.84rem; color: #f1f5f9; line-height: 1.45;">
+            ${escapeHtml(t.one_line_verdict || '')}
+          </div>
+        </div>
+
+        <!-- Two Column Bull vs Bear Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+          <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); padding: 0.75rem;">
+            <div style="font-size: 0.78rem; font-weight: 700; color: #34d399; text-transform: uppercase; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
+              <span>🟢</span> Bull Case (Strengths)
+            </div>
+            <ul style="margin: 0; padding: 0; list-style: none; font-size: 0.78rem; color: #e2e8f0; line-height: 1.4;">
+              ${bullList || '<li>Data being compiled from RHP filing.</li>'}
+            </ul>
+          </div>
+
+          <div style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-sm); padding: 0.75rem;">
+            <div style="font-size: 0.78rem; font-weight: 700; color: #f87171; text-transform: uppercase; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
+              <span>🔴</span> Bear Case (Red Flags)
+            </div>
+            <ul style="margin: 0; padding: 0; list-style: none; font-size: 0.78rem; color: #e2e8f0; line-height: 1.4;">
+              ${bearList || '<li>No major red flags detected in baseline audit.</li>'}
+            </ul>
+          </div>
+        </div>
+
+        <!-- Strategy Box -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem;">
+          <div>
+            <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">🎯 Listing Day Strategy</div>
+            <div style="font-size: 0.8rem; color: #f8fafc; margin-top: 3px; line-height: 1.4;">
+              ${escapeHtml(t.listing_day_strategy || 'Book partial profits on initial surge.')}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">📈 Long-Term Horizon (1-3 Yrs)</div>
+            <div style="font-size: 0.8rem; color: #f8fafc; margin-top: 3px; line-height: 1.4;">
+              ${escapeHtml(t.long_term_outlook || 'Compounder potential contingent on PAT margin expansion.')}
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; color: var(--text-muted);">
+          <span>Provider: ${escapeHtml(t.ai_provider || 'Google Gemini')}</span>
+          <span>${t.is_fallback ? '⚡ Algorithmic Fallback (Set GEMINI_API_KEY in .env for Live LLM)' : '✨ Live Gemini Inference'}</span>
+        </div>
+      `;
+    }
+
+    async function sendGeminiQuestion(ipoId) {
+      const input = document.getElementById(`geminiQuestionInput_${ipoId}`);
+      if (!input) return;
+      const q = input.value.trim();
+      if (!q) return;
+
+      input.value = "";
+      const historyBox = document.getElementById(`geminiChatHistory_${ipoId}`);
+      const sendBtn = document.getElementById(`btnSendGemini_${ipoId}`);
+
+      if (historyBox) {
+        historyBox.style.display = "flex";
+        // Append user bubble
+        const userDiv = document.createElement("div");
+        userDiv.className = "ai-chat-bubble-user";
+        userDiv.innerText = q;
+        historyBox.appendChild(userDiv);
+
+        // Append loading assistant bubble
+        const aiDiv = document.createElement("div");
+        aiDiv.className = "ai-chat-bubble-gemini";
+        aiDiv.innerHTML = `<span class="spinner" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></span> Thinking...`;
+        historyBox.appendChild(aiDiv);
+        historyBox.scrollTop = historyBox.scrollHeight;
+
+        if (sendBtn) sendBtn.disabled = true;
+
+        try {
+          const resp = await fetch(`/ipos/${encodeURIComponent(ipoId)}/ai-ask`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ question: q }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+            throw new Error(err.detail || resp.statusText);
+          }
+          const res = await resp.json();
+          // Format markdown-like bold and newlines
+          let formattedAns = escapeHtml(res.answer)
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/\n/g, '<br>');
+
+          aiDiv.innerHTML = `
+            <div style="font-size: 0.7rem; color: #a855f7; font-weight: 600; margin-bottom: 2px;">✨ Gemini AI Copilot:</div>
+            <div>${formattedAns}</div>
+          `;
+        } catch (e) {
+          aiDiv.innerHTML = `<span style="color: #f87171;">⚠️ ${escapeHtml(e.message)}</span>`;
+        } finally {
+          if (sendBtn) sendBtn.disabled = false;
+          historyBox.scrollTop = historyBox.scrollHeight;
+        }
+      }
+    }
+
+    function askGeminiQuick(ipoId, question) {
+      const input = document.getElementById(`geminiQuestionInput_${ipoId}`);
+      if (input) {
+        input.value = question;
+        sendGeminiQuestion(ipoId);
+      }
+    }
+
+    async function pollGeminiStatus() {
+      try {
+        const resp = await fetch("/ai/status");
+        if (resp.ok) {
+          const st = await resp.json();
+          const badge = document.getElementById("chipGeminiStatus");
+          if (badge) {
+            badge.innerText = st.configured ? "Active" : "Ready";
+            badge.style.color = st.configured ? "#34d399" : "#c4b5fd";
+          }
+        }
+      } catch (e) {}
     }
 
     function closeModal(e) {
