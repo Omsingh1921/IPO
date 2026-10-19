@@ -58,13 +58,15 @@ RUN mkdir -p /app/reports/daily /app/data /app/scratch && \
 # Switch to non-root user
 USER ipouser
 
-# Container healthcheck: validates Python runtime and CLI availability
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD python -m ipo_platform.cli --help > /dev/null || exit 1
+# Container healthcheck: validates HTTP availability
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request, os; urllib.request.urlopen('http://127.0.0.1:' + os.getenv('PORT', '8000') + '/health')" || exit 1
 
 # Expose reports directory volume mount
 VOLUME ["/app/reports/daily"]
 
+EXPOSE 8000 10000
+
 # Default entrypoint and command
 ENTRYPOINT ["/app/scripts/start.sh"]
-CMD ["python", "-m", "ipo_platform.cli", "--help"]
+CMD ["uvicorn"]
